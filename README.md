@@ -1,6 +1,6 @@
 # gitops-reconcile-and-drift
 
-A local kind cluster managed by Argo CD from a small Git repository: the controller applies a web app from Git, puts back a manual edit, prunes what you delete from Git, and rolls back with `git revert`. Every step of the lesson is a script, and a test proves each one.
+A local Kubernetes cluster (k3d by default, kind optional) managed by Argo CD from a small Git repository: the controller applies a web app from Git, puts back a manual edit, prunes what you delete from Git, and rolls back with `git revert`. Every step of the lesson is a script, and a test proves each one.
 
 | | |
 | --- | --- |
@@ -13,8 +13,9 @@ A local kind cluster managed by Argo CD from a small Git repository: the control
 
 | Tool | Version | Used for |
 | --- | --- | --- |
-| Docker | 24 or newer (tested with 24.0.6), 4 GB or more of memory for its VM | the kind node, the image builds |
-| kind | 0.33 or newer (tested with 0.33.0) | the local cluster; the node image is `kindest/node:v1.35.8`, pinned by digest in `versions.env` |
+| Docker | 24 or newer (tested with 24.0.6), 4 GB or more of memory for its VM | the cluster node, the image builds |
+| k3d | 5.9 or newer (tested with 5.9.0, k3s v1.35.5) | the local cluster, the default (`brew install k3d`); the k3s image is pinned in `versions.env` |
+| kind | 0.33 or newer (tested with 0.33.0) | optional: `CLUSTER_PROVIDER=kind make up` uses kind (`kindest/node:v1.35.8`, pinned by digest in `versions.env`) |
 | kubectl | 1.35 (includes Kustomize) | every script |
 | kubeconform | 0.8 | the schema check in the pre-push hook and in `make lint` (`brew install kubeconform`) |
 | shellcheck, yamllint | any recent | `make lint` (`brew install shellcheck yamllint`; yamllint is also installed into `.venv`) |
@@ -79,9 +80,9 @@ The measured Flux lines are in `tests/compare/test_flux_behaviors.py` and are re
 
 Only what the lesson scopes out, plus where this build differs from the lesson's text:
 
-- One kind node, one controller replica, a Git server with no authentication on a loopback-only port ([ADR 0002](docs/adr/0002-an-in-cluster-git-server.md)). Production uses a hosted repository, SSH keys or tokens, and sharded controllers.
+- One cluster node, one controller replica, a Git server with no authentication on a loopback-only port ([ADR 0002](docs/adr/0002-an-in-cluster-git-server.md)). Production uses a hosted repository, SSH keys or tokens, and sharded controllers.
 - The poll interval is 20 seconds instead of Argo CD's three minutes plus jitter ([ADR 0005](docs/adr/0005-a-twenty-second-poll-interval.md)).
-- The lesson uses `nginx:1.27`; this build uses a small nginx-unprivileged image that prints the greeting and its version, so the tests can see which image answered ([ADR 0003](docs/adr/0003-images-built-locally-and-loaded-into-kind.md)).
+- The lesson uses `nginx:1.27`; this build uses a small nginx-unprivileged image that prints the greeting and its version, so the tests can see which image answered ([ADR 0003](docs/adr/0003-images-built-locally-and-loaded-into-the-cluster.md)).
 - The lesson says a ConfigMap edit lands in a pod's environment. It does not: environment variables are read at container start. The pod template carries a `plainround.dev/config-revision` annotation that the same commit bumps, so the change rolls out as part of the commit.
 - The lesson turns prune on by re-pushing the deletion; here turning prune on makes the controller prune the already-flagged object, which shows the same flag.
 - The lesson's Argo CD CLI (`argocd app diff`, `argocd app history`) is replaced by `kubectl diff` and the Application's `status.history`, so nothing beyond `kubectl` is needed. The controller's configuration (`selfHeal`, `prune`) is changed with `kubectl patch application`.
@@ -98,8 +99,7 @@ platform/                what the cluster needs besides the app (never in the wa
   git-server/            the in-cluster Git server
   flux/                  Flux v2.10.0 and its GitRepository/Kustomization, used only by make compare
 docker/                  web (the demo app) and git-server images
-kind/                    cluster definitions
-scripts/                 up, down, reset, status, validate, seed-repo ...
+scripts/                 up, down, reset, status, validate, seed-repo, provider.sh (k3d or kind) ...
 scripts/runbook/         one script per lesson step; the tests call these
 scripts/compare/         the Flux comparison
 tests/support/           typed helpers: command runner, polling with an injected clock, a kubectl view of the Application
@@ -114,9 +114,9 @@ Dependency rule: tests depend on the scripts and on `tests/support`; scripts dep
 
 ## Troubleshooting
 
-- **`make up` seems stuck at "Preparing nodes" or "Starting control-plane":** the machine is busy (several clusters starting at once is enough). `scripts/cluster-up.sh` takes a lock so that only one `kind create cluster` runs at a time, and retries up to six times. Close other clusters or wait.
-- **`error: timed out ... waiting for the web app`:** `kubectl --context kind-gitops-drift -n argocd get application web -o yaml` shows the controller's message.
-- **Port 30418 is in use:** change the NodePort in `platform/git-server/git-server.yaml`, the port in `kind/cluster.yaml` and `GIT_HOST_PORT` in `scripts/lib.sh`.
+- **`make up` is slow or a cluster does not start:** the machine is short of CPU or memory (several clusters starting at once is enough). `scripts/cluster-up.sh` takes a machine-wide lock so that only one cluster is created at a time, and retries up to six times. k3d starts a control plane in seconds; kind's kubeadm has hard deadlines that a starved machine can miss, which is why k3d is the default.
+- **`error: timed out ... waiting for the web app`:** `kubectl --context k3d-gitops-drift -n argocd get application web -o yaml` shows the controller's message.
+- **Port 30418 is in use:** change the NodePort in `platform/git-server/git-server.yaml`, the port mapping in `scripts/cluster-up.sh` and `GIT_HOST_PORT` in `scripts/lib.sh`.
 - **A test left the demo in a strange state:** `scripts/reset.sh` deletes the app and the namespace and starts again from the seeded commit.
 
 ## Author and license

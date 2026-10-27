@@ -32,10 +32,19 @@ def cluster_name() -> str:
     return os.environ.get("CLUSTER_NAME", "gitops-drift")
 
 
+def context_of(cluster_name: str) -> str:
+    """The kubectl context of the cluster: k3d's or kind's, whichever `make up` created."""
+    contexts = run(["kubectl", "config", "get-contexts", "-o", "name"], check=False).stdout.split()
+    for candidate in (f"k3d-{cluster_name}", f"kind-{cluster_name}"):
+        if candidate in contexts:
+            return candidate
+    pytest.fail(f"no kubectl context for cluster {cluster_name}: run `make up` first", pytrace=False)
+
+
 @pytest.fixture(scope="session")
 def kube(cluster_name: str) -> Kube:
     """kubectl pinned to the project's cluster; the tests need `make up` to have run."""
-    client = Kube(f"kind-{cluster_name}")
+    client = Kube(context_of(cluster_name))
     if client.kubectl("get", "namespace", "argocd", check=False).returncode != 0:
         pytest.fail("the cluster is not up: run `make up` first", pytrace=False)
     return client

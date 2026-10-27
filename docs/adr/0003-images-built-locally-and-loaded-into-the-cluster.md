@@ -6,7 +6,7 @@ The application image and the Git server image must be available to the cluster 
 
 ## Decision
 
-`scripts/build-images.sh` builds `plainround/web:1.0.0`, `plainround/web:1.1.0` and `plainround/git-server:1.0.0` with Docker and loads them with `kind load docker-image`. Pods use `imagePullPolicy: IfNotPresent` and a fixed version tag, never `latest`.
+`scripts/build-images.sh` builds `plainround/web:1.0.0`, `plainround/web:1.1.0` and `plainround/git-server:1.0.0` with Docker and loads them with `k3d image import` (or `kind load docker-image`). Pods use `imagePullPolicy: IfNotPresent` and a fixed version tag, never `latest`.
 
 ## Alternatives
 

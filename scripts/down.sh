@@ -2,7 +2,7 @@
 # Deletes the cluster and the working clone. Nothing else is left behind on the machine except the images.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-require kind
+require "${CLUSTER_PROVIDER}"
 
-kind delete cluster --name "${CLUSTER_NAME}"
+provider_delete "${CLUSTER_NAME}"
 rm -rf "${WORK_DIR}"

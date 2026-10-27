@@ -15,10 +15,9 @@ fi
 
 CLUSTER_NAME="${CLUSTER_NAME:-gitops-drift}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-240}"
-KUBE_CONTEXT="kind-${CLUSTER_NAME}"
-GIT_HOST_PORT=30418
+GIT_HOST_PORT="${GIT_HOST_PORT:-30418}"
 GIT_HOST_URL="http://127.0.0.1:${GIT_HOST_PORT}/gitops-demo.git"
-WORK_DIR="${ROOT}/.work"
+WORK_DIR="${WORK_DIR:-${ROOT}/.work}"
 WORK_CLONE="${WORK_DIR}/gitops-demo"
 APP_NAME="web"
 APP_NAMESPACE="web"
@@ -26,6 +25,10 @@ export CLUSTER_NAME WAIT_TIMEOUT KUBE_CONTEXT GIT_HOST_URL WORK_CLONE
 
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2; }
 die() { log "error: $*"; exit 1; }
+
+# shellcheck source=provider.sh
+source "${ROOT}/scripts/provider.sh"
+KUBE_CONTEXT="$(provider_context "${CLUSTER_NAME}")"
 
 require() {
   local tool
@@ -109,23 +112,3 @@ output_is() {
 }
 
 deploy_field() { kc -n "${APP_NAMESPACE}" get deploy web -o "jsonpath=${1}" 2>/dev/null || true; }
-
-# with_kind_lock <command...>: run one command while holding the machine-wide lock that keeps two `kind create cluster`
-# from starting at once (a busy laptop cannot start two control planes together). The lock is a directory holding the
-# holder's PID; a lock whose holder is gone is removed.
-with_kind_lock() {
-  local lock=/tmp/plainround-kind-create.lock waited=0 holder status
-  until mkdir "${lock}" 2>/dev/null; do
-    holder="$(cat "${lock}/pid" 2>/dev/null || true)"
-    if [ -n "${holder}" ] && ! kill -0 "${holder}" 2>/dev/null; then rm -rf "${lock}"; continue; fi
-    [ "${waited}" -lt 7200 ] || die "gave up waiting for another cluster to finish starting"
-    [ $((waited % 60)) -ne 0 ] || log "another cluster is starting; waiting for ${lock}"
-    sleep 5
-    waited=$((waited + 5))
-  done
-  echo "$$" > "${lock}/pid"
-  status=0
-  "$@" || status=$?
-  rm -rf "${lock}"
-  return "${status}"
-}

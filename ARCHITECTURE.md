@@ -1,6 +1,6 @@
 # Architecture: a cluster that follows a Git repository
 
-This document describes what is in this repository and why it is shaped this way. Component names match the diagram in the lesson ("A cluster that follows a Git repository"): **You**, **gitops-demo**, **Argo CD or Flux** (Argo CD here, Flux in the comparison), **Deployment web**, **ConfigMap web-config** and **Service web**, all inside **Local cluster (kind)**, **Namespace web**.
+This document describes what is in this repository and why it is shaped this way. Component names match the diagram in the lesson ("A cluster that follows a Git repository"): **You**, **gitops-demo**, **Argo CD or Flux** (Argo CD here, Flux in the comparison), **Deployment web**, **ConfigMap web-config** and **Service web**, all inside **Local cluster (k3d or kind)**, **Namespace web**.
 
 ## Components and what each owns
 
@@ -14,8 +14,8 @@ This document describes what is in this repository and why it is shaped this way
 | **Deployment web** | [`manifests/apps/web/base/deployment.yaml`](manifests/apps/web/base/deployment.yaml) | Two replicas of `plainround/web`, non-root, read-only root filesystem, limits, probes, a 60-second progress deadline so a bad rollout turns "Degraded" quickly. |
 | **ConfigMap web-config** | [`.../configmap.yaml`](manifests/apps/web/base/configmap.yaml) | `GREETING`, read into the container's environment at start. |
 | **Service web** | [`.../service.yaml`](manifests/apps/web/base/service.yaml) | Port 80 to the pods' named port `http`. |
-| **Local cluster (kind)** | [`kind/cluster.yaml`](kind/cluster.yaml), [`scripts/cluster-up.sh`](scripts/cluster-up.sh) | One control-plane node on a pinned Kubernetes image. |
-| **Images** | [`docker/web`](docker/web), [`scripts/build-images.sh`](scripts/build-images.sh) | `plainround/web:1.0.0` and `:1.1.0` (the same nginx with a different printed version) and `plainround/git-server:1.0.0`, built locally and loaded into kind. [ADR 0003](docs/adr/0003-images-built-locally-and-loaded-into-kind.md). |
+| **Local cluster (k3d)** | [`scripts/provider.sh`](scripts/provider.sh), [`scripts/cluster-up.sh`](scripts/cluster-up.sh) | One control-plane node (k3s v1.35.5 by default, `kindest/node` with `CLUSTER_PROVIDER=kind`), the Git server's NodePort published on `127.0.0.1:30418`. [ADR 0006](docs/adr/0006-k3d-by-default-kind-optional.md). |
+| **Images** | [`docker/web`](docker/web), [`scripts/build-images.sh`](scripts/build-images.sh) | `plainround/web:1.0.0` and `:1.1.0` (the same nginx with a different printed version) and `plainround/git-server:1.0.0`, built locally and loaded into kind. [ADR 0003](docs/adr/0003-images-built-locally-and-loaded-into-the-cluster.md). |
 | **Tests** | [`tests/`](tests) | Offline: helper code and manifest conformance. Cluster: one module per lesson step that runs the runbook script and asserts on the controller and the cluster. |
 
 ## Pattern: pull-based reconciliation, and a runbook that is code
@@ -32,7 +32,7 @@ flowchart LR
     subgraph host["Host"]
         clone[".work/gitops-demo<br/>working clone"]
     end
-    subgraph kind["Local cluster (kind)"]
+    subgraph kind["Local cluster (k3d)"]
         git["Git server<br/>namespace git-server"]
         subgraph argocd["namespace argocd"]
             repo["repo-server<br/>renders the overlay"]

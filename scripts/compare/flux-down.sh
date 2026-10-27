@@ -4,7 +4,7 @@ set -euo pipefail
 # shellcheck source=env.sh
 source "$(dirname "${BASH_SOURCE[0]}")/env.sh"
 source "${COMPARE_ROOT}/scripts/lib.sh"
-require kind
+require "${CLUSTER_PROVIDER}"
 
-kind delete cluster --name "${CLUSTER_NAME}"
+provider_delete "${CLUSTER_NAME}"
 rm -rf "${WORK_DIR}"
