@@ -4,8 +4,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require "${CLUSTER_PROVIDER}" kubectl docker
 
-# A cluster whose creation was interrupted exists as a container but has no working context; start it over.
-if provider_exists "${CLUSTER_NAME}" && ! kc get nodes >/dev/null 2>&1; then
+# A cluster whose creation was interrupted exists as a container but has no kubectl context; start it over. (A slow API
+# server is not a reason to delete a cluster, so only the missing context counts.)
+if provider_exists "${CLUSTER_NAME}" && ! kubectl config get-contexts -o name | grep -qx "${KUBE_CONTEXT}"; then
   log "cluster ${CLUSTER_NAME} is half-made; deleting it"
   provider_delete "${CLUSTER_NAME}"
 fi
