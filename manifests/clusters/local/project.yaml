@@ -1,0 +1,18 @@
+---
+# The project limits what the controller may do for this app: one repository, one namespace, one
+# cluster-scoped kind (the Namespace itself).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-demo
+  namespace: argocd
+spec:
+  description: The web demo app and nothing else
+  sourceRepos:
+    - http://git-server.git-server.svc.cluster.local/gitops-demo.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: web
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace

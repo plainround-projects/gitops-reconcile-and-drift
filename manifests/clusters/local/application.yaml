@@ -1,0 +1,23 @@
+---
+# The starting state of lesson step 1: automated sync with self-heal and prune both off. The runbook
+# turns them on one at a time (scripts/runbook).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: gitops-demo
+  source:
+    repoURL: http://git-server.git-server.svc.cluster.local/gitops-demo.git
+    targetRevision: main
+    path: apps/web/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: web
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
