@@ -48,7 +48,7 @@ make down            # delete the cluster and the working clone
 | 3 | With self-healing off, the controller reports the app as out of sync and shows the difference; with it on, both changes are reverted automatically. | `scripts/runbook/03-drift.sh off`, then `on` | `test_03_drift.py`: after `kubectl scale` and `kubectl patch`, the Application is `OutOfSync`, `kubectl diff` shows `replicas` and `GREETING`, and the objects are still changed 45 seconds later; after `selfHeal: true` both return to 3 and `hi there` with no command from the tester. |
 | 4 | With pruning off the object stays and is flagged; with it on, the object is removed, and you write down when you would turn pruning off. | `scripts/runbook/04-prune.sh off`, `on`, `restore` | `test_04_prune.py`: the ConfigMap is present and `ConfigMap/web-config` is listed as needing pruning with prune off; `NotFound` with prune on; `git revert` brings it back. When to turn pruning off: [below](#when-i-would-turn-pruning-off). |
 | 5 | The controller reports the app as degraded after the bad commit, and healthy again after the revert, with no command run against the cluster. | `scripts/runbook/05-break-and-rollback.sh bad`, `rollback` | `test_05_rollback.py`: `Degraded` after the commit (image 1.1.0, readiness probe on a missing path) while the old pods keep answering `1.0.0`; after `git revert` the image is `plainround/web:1.0.0` again and the Application is `Healthy` and `Synced` at the revert commit. The scripts run only `git` against the repository. |
-| 6 | A short table in the README compares how each one handles self-healing, pruning and health checks. | `make compare` | [The table below](#argo-cd-and-flux-compared); `tests/compare/test_flux_behaviors.py` ran each behavior against Flux v2.10.0 in a second cluster. |
+| 6 | A short table in the README compares how each one handles self-healing, pruning and health checks. | `make compare` | [The table below](#argo-cd-and-flux-compared); `tests/compare/test_flux_behaviors.py` checks each behavior against Flux v2.10.0 in a second cluster. |
 
 Also proven, because the task asks for a bad manifest to be refused: `test_06_bad_manifest.py` pushes `replicas: "many"`. The pre-push hook (`kubeconform`) refuses the push; with `--no-verify` the push goes through, the Kubernetes API server refuses the apply, the Application reports a failed operation, and the live Deployment keeps its last good state. `tests/unit/test_validate_script.py` shows the same gate refusing a wrong type, an unknown field and a misspelled `Application` field, offline.
 
@@ -58,7 +58,7 @@ For anything that is hard to recreate or that holds data: a PersistentVolumeClai
 
 ### Argo CD and Flux compared
 
-Measured on this repository with Argo CD v3.5.6 and Flux v2.10.0 (`make compare`; the Flux cluster is deleted afterwards):
+What each controller does with the three behaviors, as the Argo CD runbook and `make compare` (Flux v2.10.0, in a second cluster that is deleted afterwards) check them:
 
 | Behavior | Argo CD | Flux |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ Measured on this repository with Argo CD v3.5.6 and Flux v2.10.0 (`make compare`
 | **Pruning** | A separate flag: `syncPolicy.automated.prune`, default `false`. With it off, the deleted file's object stays and is listed as needing pruning, and the Application is `OutOfSync`. | A separate flag: `spec.prune`, default `false`. With it off, the object stays and Flux reports `Ready=True`: there is no out-of-sync flag to see. With it on, the object is removed. |
 | **Health** | Lua health checks per resource kind, shown as `Healthy`, `Progressing` or `Degraded` beside the sync status. A Deployment whose rollout exceeded its progress deadline is `Degraded`. | kstatus, used when `spec.wait: true` (or `healthChecks`): the `Kustomization` is `Ready=False` until the applied objects are healthy, and `Ready=True` again after the revert. Sync and health are one condition, not two statuses. |
 
-The measured Flux lines are in `tests/compare/test_flux_behaviors.py` and are re-run by `make compare`.
+The Flux column is asserted by `tests/compare/test_flux_behaviors.py`, which `make compare` runs.
 
 ## Stretch goals
 
@@ -118,6 +118,16 @@ Dependency rule: tests depend on the scripts and on `tests/support`; scripts dep
 - **`error: timed out ... waiting for the web app`:** `kubectl --context k3d-gitops-drift -n argocd get application web -o yaml` shows the controller's message.
 - **Port 30418 is in use:** change the NodePort in `platform/git-server/git-server.yaml`, the port mapping in `scripts/cluster-up.sh` and `GIT_HOST_PORT` in `scripts/lib.sh`.
 - **A test left the demo in a strange state:** `scripts/reset.sh` deletes the app and the namespace and starts again from the seeded commit.
+
+## Verification status
+
+Verified on 2026-10-27 in the session that built this repository:
+
+- `make lint`: yamllint, shellcheck, ruff, mypy and `scripts/validate.sh` (kubectl kustomize and kubeconform against the Kubernetes and Argo CD schemas) all pass.
+- `make test-offline`: the unit tests of the helpers (100 percent coverage of `tests/support`), the manifest conformance tests and the validation-gate tests pass; `scripts/validate.sh` refuses a string where a number belongs, an unknown field and a misspelled `Application` field.
+- The images build, and the demo web image was run read-only and non-root and answered `/`, `/version` and `/healthz`.
+
+Not completed in that session, and why: the Mac the repositories were built on was out of memory and swap for most of the night (swap at about 70 GB, load average above 150, Docker's virtual machine at full CPU, and its disk went read-only once), shared with a dozen other builds. kind's control plane failed to start about fifteen times in a row (kubeadm's fixed deadlines), which is why k3d is the default provider; a k3d cluster did start, but its API server then stopped answering and `make up` could not finish. The cluster/stack commands above are written to run on a quiet machine (`make up && make test && make compare`); until they have run once on yours, treat the runbook, the cluster tests and the Flux comparison as unproven. Nothing in this repository was marked passing that did not run.
 
 ## Author and license
 
