@@ -61,6 +61,138 @@ spec:
 ### The settings patched in
 `timeout.reconciliation: 20s` in `argocd-cm`: how often the repo-server re-reads Git (default 3 minutes plus up to 1 minute of jitter, which is why the lesson sets it).
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: every Argo CD file
+
+**Words you need first.** A **custom resource** is a kind of Kubernetes object that is not built in; a program adds it. Argo CD adds `Application` and `AppProject`. A **namespace** is a named folder of objects. A **ConfigMap** holds named settings. **Reconciliation** means a program keeps comparing the wanted state with the real state and fixing the difference.
+
+#### `platform/argocd/namespace.yaml`
+
+```yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argocd
+```
+
+- Creates the namespace `argocd`, where all of Argo CD's parts run. It has no label because Argo CD's own pods are not restricted.
+
+#### `platform/argocd/controller-settings.yaml`
+
+```yaml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+data:
+  # Poll Git every 20 seconds with no random delay (the default is three minutes plus up to a minute).
+  timeout.reconciliation: 20s
+  timeout.reconciliation.jitter: 0s
+```
+
+- A ConfigMap named `argocd-cm`: Argo CD reads its settings from the object with exactly this name. It has no namespace here because the Kustomize file below sets the namespace of everything to `argocd`.
+- `timeout.reconciliation: 20s`: how often Argo CD asks Git whether anything changed. The default is three minutes, too slow to watch in a lesson. `timeout.reconciliation.jitter: 0s` removes the random extra delay Argo CD normally adds to spread load (the default is up to a minute).
+- Kustomize merges this into the real `argocd-cm` that comes with Argo CD's install file. See the Kustomize note.
+
+#### `platform/argocd/kustomization.yaml`
+
+```yaml
+---
+# Argo CD at the version in versions.env (the tag below must match ARGOCD_VERSION), trimmed for a laptop:
+# no Dex (no single sign-on), no notifications, and a short poll interval so the runbook does not wait
+# three minutes for every change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  - path: controller-settings.yaml
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-dex-server
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-notifications-controller
+```
+
+- (See the Kustomize note for the keys.) What matters here: the install file is downloaded from the exact release `v3.5.6` of Argo CD; the namespace of every object is set to `argocd`; the file `controller-settings.yaml` is merged in as a patch; and two parts the lesson does not need, Dex (single sign-on) and the notifications controller, are deleted with `$patch: delete`.
+
+#### `manifests/clusters/local/project.yaml`
+
+```yaml
+---
+# The project limits what the controller may do for this app: one repository, one namespace, one
+# cluster-scoped kind (the Namespace itself).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: gitops-demo
+  namespace: argocd
+spec:
+  description: The web demo app and nothing else
+  sourceRepos:
+    - http://git-server.git-server.svc.cluster.local/gitops-demo.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: web
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+```
+
+- An **AppProject** limits what the Applications in it may do. This is a safety fence.
+- `sourceRepos`: the only Git address it may read from.
+- `destinations`: the only place it may deploy to: this cluster (`https://kubernetes.default.svc` is the cluster Argo CD itself runs in) and only the namespace `web`.
+- `clusterResourceWhitelist`: the only cluster-wide (not namespaced) kind it may create: a `Namespace` (`group: ""` is the core API group). That is needed because the repository contains the `web` namespace itself.
+
+#### `manifests/clusters/local/application.yaml`
+
+```yaml
+---
+# The starting state of lesson step 1: automated sync with self-heal and prune both off. The runbook
+# turns them on one at a time (scripts/runbook).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: web
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: gitops-demo
+  source:
+    repoURL: http://git-server.git-server.svc.cluster.local/gitops-demo.git
+    targetRevision: main
+    path: apps/web/overlays/local
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: web
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: false
+```
+
+- An **Application** says "keep this part of Git deployed to this place".
+- `metadata.finalizers`: a finalizer is a note that makes Kubernetes run a cleanup before it deletes the object. This one makes deleting the Application also delete everything it deployed.
+- `spec.project: gitops-demo`: the fence above.
+- `source`: `repoURL` the Git server inside the cluster; `targetRevision: main` the branch to follow; `path: apps/web/overlays/local` the folder to build and deploy.
+- `destination`: `server` is the cluster; `namespace: web` where the objects go.
+- `syncPolicy.automated`: Argo CD applies changes by itself. `prune: false` and `selfHeal: false` are the lesson's starting point: Argo CD only deploys new commits. The runbook turns the two switches on one at a time. (*Prune* = delete objects that left Git; *self-heal* = undo changes made by hand.)
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl --context k3d-gitops-drift -n argocd get application web` : columns `SYNC STATUS` and `HEALTH STATUS`.

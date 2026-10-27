@@ -83,6 +83,139 @@ compare: $(STAMP)
 
 `audit` installs `pip-audit` and checks the locked packages against known-vulnerability data. `down` runs `scripts/down.sh`. `clean` removes the venv and caches with `rm -rf`.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the whole `Makefile`
+
+**Words you need first.** `make` is a program that reads a file called `Makefile`. The file is a list of **rules**. A rule is `target: prerequisites` followed by lines (the **recipe**) that start with a **tab** character. When you run `make target`, Make first makes sure each prerequisite is up to date, then runs the recipe lines, each in its own shell. If a recipe line fails, Make stops. A target that is a file name is rebuilt only when a prerequisite file is newer than it; a target that is just a command name (`up`, `test`) is declared **phony** so Make always runs it.
+
+```make
+# make up | run | test | lint | down      (make help lists everything)
+PYTHON ?= $(shell command -v python3.13 || command -v python3.12 || command -v python3)
+VENV := .venv
+PY := $(VENV)/bin/python
+STAMP := $(VENV)/.installed
+SCRIPTS := $(wildcard scripts/*.sh scripts/runbook/*.sh scripts/compare/*.sh docker/git-server/entrypoint.sh)
+```
+
+- Line 1 is a comment listing the main commands. `PYTHON ?= …` sets a variable only if you did not set it already (`?=`). `$(shell command)` runs a command and uses its output; `command -v x || command -v y || command -v z` finds the first of three Python programs that exists, preferring 3.13, then 3.12, then any `python3`.
+- `VENV := .venv`, `PY := $(VENV)/bin/python`, `STAMP := $(VENV)/.installed`: `:=` assigns once, at once. `.venv` is the folder of the Python **virtual environment** (a private copy of Python with its own installed libraries). `PY` is the Python inside it. `STAMP` is a marker file that records "the environment is installed".
+- `SCRIPTS := $(wildcard …)` builds a list of all shell script files with Make's wildcard function (a wildcard `*` means "any name"). It is passed to ShellCheck by `make lint`.
+
+```make
+.PHONY: help install up run status test test-offline test-cluster compare lint format audit validate down clean
+
+help: ## list the targets
+	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /\t/' | sort
+```
+
+- `.PHONY:` lists targets that are commands and not files.
+- `help:` shows all targets. The recipe line starts with `@`, which hides the command itself. `grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST)` finds every line that looks like `name: … ## description` in the Makefile (`$(MAKEFILE_LIST)` is the Makefile's own name). `sed -E 's/:.*## /\t/'` replaces everything from the colon to `## ` by a tab; `sort` orders the lines. The `##` comments are what makes the output.
+
+```make
+$(STAMP): requirements-dev.lock pyproject.toml
+	$(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -q --require-hashes -r requirements-dev.lock
+	touch $@
+
+install: $(STAMP) ## create .venv from the lock file
+```
+
+- `$(STAMP): requirements-dev.lock pyproject.toml` is a **file rule**: the marker is rebuilt when either file is newer. The recipe: create the virtual environment with `$(PYTHON) -m venv $(VENV)`, install exactly the locked libraries with `pip install -q --require-hashes -r requirements-dev.lock` (`-q` quiet; `--require-hashes` refuses any file whose checksum is not listed; `-r` reads the list from a file), then `touch $@` (`$@` is the target name) to create or refresh the marker.
+- `install: $(STAMP)` is a shortcut: asking for `install` makes sure the marker is current.
+
+```make
+.env:
+	cp .env.example .env
+
+up: .env ## create the kind cluster, install Argo CD and the Git server, seed the repository
+	./scripts/up.sh
+
+run: ## the whole lesson as one scripted run (needs make up)
+	./scripts/run.sh
+```
+
+- `.env:` is a file rule with no prerequisites: if the file `.env` does not exist, copy `.env.example` to it.
+- `up: .env` depends on that file, so `make up` creates `.env` first, then runs `./scripts/up.sh`. `run:` runs `./scripts/run.sh`. The text after `##` is the help line.
+
+```make
+status: ## what the controller reports and what the cluster holds
+	./scripts/status.sh
+
+validate: ## kubeconform over the rendered overlays and the Argo CD objects
+	./scripts/validate.sh
+```
+
+- `status:` and `validate:` run the scripts of the same name.
+
+```make
+lint: $(STAMP) ## yamllint, kubeconform, shellcheck, ruff and mypy
+	$(VENV)/bin/yamllint -s .
+	./scripts/validate.sh
+	shellcheck $(SCRIPTS)
+	$(VENV)/bin/ruff check .
+	$(VENV)/bin/ruff format --check .
+	$(VENV)/bin/mypy
+```
+
+- `lint: $(STAMP)` first makes sure the tools are installed, then runs six checks in order. `yamllint -s .` checks the style of every YAML file (`-s` = warnings also fail). `./scripts/validate.sh` checks the manifests. `shellcheck $(SCRIPTS)` checks the shell scripts. `ruff check .` and `ruff format --check .` check the Python for mistakes and for layout. `mypy` checks the type hints. The first failure stops `make lint`.
+
+```make
+format: $(STAMP) ## format the Python
+	$(VENV)/bin/ruff format .
+	$(VENV)/bin/ruff check --fix .
+```
+
+- `format:` fixes what can be fixed: `ruff format .` rewrites the layout; `ruff check --fix .` applies automatic repairs.
+
+```make
+test-offline: $(STAMP) ## unit tests and manifest checks; no cluster needed
+	$(PY) -m pytest -m "not cluster and not compare" --cov --cov-report=term-missing
+```
+
+- `test-offline:` runs pytest (`$(PY) -m pytest`), selecting only the tests that need no cluster (`-m "not cluster and not compare"`), with a coverage report (`--cov`) that lists the lines not run (`--cov-report=term-missing`).
+
+```make
+test-cluster: $(STAMP) ## prove drift, pruning, rollback and the refused manifest on the cluster (needs make up)
+	$(PY) -m pytest -m cluster
+```
+
+- `test-cluster:` runs only the tests marked `cluster`.
+
+```make
+compare: $(STAMP) ## step 6: install Flux in a second cluster, run the same three behaviors, delete it
+	./scripts/compare/flux-up.sh
+	$(PY) -m pytest -m compare; status=$$?; ./scripts/compare/flux-down.sh; exit $$status
+```
+
+- `compare:` brings up the Flux cluster with `./scripts/compare/flux-up.sh`, then runs the `compare` tests. The line `$(PY) -m pytest -m compare; status=$$?; ./scripts/compare/flux-down.sh; exit $$status` is one shell command with several parts separated by `;`: run the tests, **save their exit code** (`$$?` is Make's way to write the shell's `$?`; a single `$` would be taken by Make itself), always run the delete script, then exit with the saved code. So the Flux cluster is removed even when the tests fail.
+
+```make
+test: $(STAMP) ## everything: the offline tests, then the cluster tests (needs make up)
+	$(PY) -m pytest -m "not cluster and not compare" --cov --cov-report=term-missing
+	$(PY) -m pytest -m cluster
+```
+
+- `test:` runs the offline tests, then the cluster tests.
+
+```make
+audit: $(STAMP) ## known-vulnerability check of the locked Python dependencies
+	$(VENV)/bin/pip install -q pip-audit==2.9.0
+	$(VENV)/bin/pip-audit --require-hashes -r requirements-dev.lock
+```
+
+- `audit:` installs a vulnerability checker at an exact version and runs it against the locked libraries (`pip-audit --require-hashes -r …`).
+
+```make
+down: ## delete the cluster and the working clone
+	./scripts/down.sh
+
+clean: ## remove the virtual environment and caches
+	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov
+```
+
+- `down:` runs `./scripts/down.sh`. `clean:` deletes the virtual environment and the caches with `rm -rf` (remove, recursively, without asking).
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `make help` : a sorted list of targets with one-line descriptions.

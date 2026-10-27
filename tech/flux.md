@@ -49,6 +49,90 @@ Each key is explained above. Together they say: "every 10 seconds fetch `main`, 
 * `flux-behaviors.sh` defines readers such as `ready() { kustomization_field '{.status.conditions[?(@.type=="Ready")].status}'; }`, then performs: drift (scale to 5 and patch the greeting; wait for the revert), prune off (delete the file; sleep 40; the ConfigMap is still there), prune on (`patch kustomization web ... {"spec":{"prune":true}}`; the ConfigMap goes), then a bad commit (`Ready=False`) and `git revert` (`Ready=True`). Each outcome prints one `RESULT ...` line.
 * `flux-down.sh` deletes the cluster. `make compare` guarantees it runs even if the tests fail.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: every Flux file
+
+#### `platform/flux/sync.yaml`
+
+```yaml
+---
+# The same repository and path the Argo CD Application watches, with Flux's equivalents of its settings.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: gitops-demo
+  namespace: flux-system
+spec:
+  interval: 10s
+  url: http://git-server.git-server.svc.cluster.local/gitops-demo.git
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: web
+  namespace: flux-system
+spec:
+  interval: 10s
+  sourceRef:
+    kind: GitRepository
+    name: gitops-demo
+  path: ./apps/web/overlays/local
+  # prune is off by default in Flux too; the comparison turns it on for the second half of the test.
+  prune: false
+  # wait: true makes Ready depend on the health of every applied object (kstatus), not just on the apply.
+  wait: true
+  timeout: 60s
+```
+
+- Two objects. The first is a **GitRepository**: it tells Flux's source controller what to fetch. `interval: 10s` asks every ten seconds; `url` is the in-cluster Git server; `ref.branch: main` the branch to follow.
+- The second is a **Kustomization** (Flux's kind: an object in the cluster, not a file). `interval: 10s` re-applies every ten seconds; this is the reason Flux needs no self-heal switch. `sourceRef` points at the GitRepository above. `path: ./apps/web/overlays/local` is the folder to build and apply. `prune: false` leaves objects that left Git alone (the default). `wait: true` makes the Kustomization report "Ready" only when the applied objects are healthy; `timeout: 60s` limits that wait.
+
+#### `platform/flux/kustomization.yaml`
+
+```yaml
+---
+# Flux at the version in versions.env (the tag below must match FLUX_VERSION), trimmed to the two controllers
+# a plain Git-to-cluster sync needs: no Helm, notification or image-automation controllers.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/fluxcd/flux2/releases/download/v2.10.0/install.yaml
+patches:
+  - target: { kind: Deployment, name: helm-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: helm-controller
+  - target: { kind: Deployment, name: notification-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: notification-controller
+  - target: { kind: Deployment, name: image-reflector-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: image-reflector-controller
+  - target: { kind: Deployment, name: image-automation-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: image-automation-controller
+```
+
+- (See the Kustomize note.) The install file of Flux at `v2.10.0`, with four unneeded controllers deleted.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `make compare` (needs a quiet machine; about 10 minutes) : prints four `RESULT` lines.

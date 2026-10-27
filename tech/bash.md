@@ -1033,6 +1033,104 @@ exec nginx -g 'daemon off;'
 - For each name, if the folder does not exist (`! [ -d … ]` written `[ ! -d … ]`), create a **bare** repository (`--bare` = only the history, no working files; what a server holds). `config http.receivepack true` allows pushes over HTTP.
 - `rm -f` removes an old socket file (a socket is a special file used for talking between two programs on the same machine). `fcgiwrap -s unix:/tmp/fcgiwrap.sock &` starts a helper program in the **background** (the `&` at the end). It lets the web server run Git. `exec nginx -g 'daemon off;'` replaces the shell with the nginx web server, running in the foreground (a container ends when its main process ends). Being the main process, nginx receives the stop signal directly when Kubernetes stops the container.
 
+<!-- full-walkthrough:begin -->
+### 5.8 The remaining lines: the configuration files and a few repeated lines
+
+#### The two small configuration files
+
+`versions.env` and `.env` are **environment files**: plain text with one `NAME=value` per line. They are not run; the scripts load them with `source`, which turns each line into a variable.
+
+```bash
+# Every version this project pins. Scripts and the Makefile source this file; change a version here only.
+KIND_NODE_IMAGE=kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+ARGOCD_VERSION=v3.5.6
+FLUX_VERSION=v2.10.0
+WEB_BASE_IMAGE=nginxinc/nginx-unprivileged:1.31.7-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
+GIT_SERVER_BASE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+KUBECONFORM_KUBERNETES_VERSION=1.35.0
+K3S_IMAGE=rancher/k3s:v1.35.5-k3s1
+```
+
+- Every version the project depends on, in one place. `KIND_NODE_IMAGE`, `WEB_BASE_IMAGE` and `GIT_SERVER_BASE_IMAGE` are container images written as `name:tag@sha256:…`. The part after `@sha256:` is a **digest**, a long checksum of the exact bytes of the image; unlike a tag it cannot be re-pointed, so the build always gets the same image. `ARGOCD_VERSION` and `FLUX_VERSION` are the controller versions (checked against the Kustomize files by the scripts). `KUBECONFORM_KUBERNETES_VERSION` is the Kubernetes version the manifest checker uses. `K3S_IMAGE` is the k3s image `provider_create` passes to k3d.
+
+The `.env` file is copied from `.env.example` by `make up`. The example holds two settings with a comment above each explaining what it is for; the values are the defaults that `lib.sh` would use anyway, so a person can see them and change them:
+
+```
+# Copied to .env by `make up`. Nothing here is a secret; every value has a default in scripts/lib.sh.
+CLUSTER_NAME=gitops-drift
+# How long the runbook and the tests wait for the controller, in seconds.
+WAIT_TIMEOUT=240
+```
+
+- `CLUSTER_NAME` is the name of the local cluster (and so of its `kubectl` context); `WAIT_TIMEOUT` is how many seconds scripts and tests wait for the controller.
+
+#### Lines that repeat in every script
+
+Each runbook script loads the library with the same line, which differs from the other scripts' because they sit one folder deeper:
+
+```bash
+source "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+```
+
+- `"$(dirname "${BASH_SOURCE[0]}")/../lib.sh"`: the folder of this script, then `..` (up one level, from `scripts/runbook/` to `scripts/`), then `lib.sh`. The same line is the 6th line in `03-drift.sh` and `06-bad-manifest.sh`, the 7th in `04-prune.sh`, and in `05-break-and-rollback.sh`.
+
+```bash
+    k3d) echo "k3d-$1-serverlb" ;;
+```
+
+- In `provider_api_host`, for k3d: the API server of a k3d cluster is reached through the cluster's **load balancer** container, named `k3d-<cluster>-serverlb`.
+
+```bash
+    k3d) k3d cluster delete "$1" ;;
+    kind) kind delete cluster --name "$1" ;;
+```
+
+- In `provider_delete`: `k3d cluster delete <name>` for k3d, and `kind delete cluster --name <name>` for kind.
+
+#### `scripts/run.sh` lines 14-28
+
+```bash
+step "Step 3b: drift it by hand, self-heal on"
+"${ROOT}/scripts/runbook/03-drift.sh" on
+step "Step 4a: delete the ConfigMap's file, prune off"
+"${ROOT}/scripts/runbook/04-prune.sh" off
+step "Step 4b: the same deletion, prune on"
+"${ROOT}/scripts/runbook/04-prune.sh" on
+step "Step 4c: bring the ConfigMap back with git revert"
+"${ROOT}/scripts/runbook/04-prune.sh" restore
+step "Step 5a: a bad commit"
+"${ROOT}/scripts/runbook/05-break-and-rollback.sh" bad
+step "Step 5b: git revert"
+"${ROOT}/scripts/runbook/05-break-and-rollback.sh" rollback
+step "Extra: a manifest the schema refuses"
+"${ROOT}/scripts/runbook/06-bad-manifest.sh"
+step "Where it ended"
+```
+
+- Continue the list started in section 5.5: step 3b (self-heal on), step 4 in three parts (prune off, prune on, restore), step 5 in two parts (a bad commit, `git revert`), the manifest the schema refuses, and a final status. Each runbook script is called by its full path; the argument chooses the variant.
+
+#### Three more lines of the runbook
+
+```bash
+    die "usage: 04-prune.sh off|on|restore"
+```
+
+- The `*)` branch of the `case` is the usage error: any argument other than `off`, `on` or `restore` makes the script stop with `die` and the message `usage: 04-prune.sh off|on|restore`.
+
+```bash
+marker="${WORK_DIR}/bad-commit"
+live_image() { deploy_field '{.spec.template.spec.containers[0].image}'; }
+```
+
+- `marker` is the file in which the bad commit's hash is remembered, so `rollback` knows what to revert. `live_image` is a small function that prints the image of the running Deployment (`jsonpath` of `.spec.template.spec.containers[0].image`).
+
+```bash
+    die "usage: 05-break-and-rollback.sh bad|rollback"
+```
+
+- The same usage-error branch for `bad|rollback`.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. Check every script for mistakes without running them: `shellcheck scripts/*.sh scripts/*/*.sh docker/git-server/entrypoint.sh`. No output means no findings.

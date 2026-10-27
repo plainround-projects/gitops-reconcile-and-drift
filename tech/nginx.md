@@ -59,6 +59,84 @@ location ~ ^/.+\.git/(HEAD|info/refs|objects/info/.*|git-(upload|receive)-pack)$
 ```
 The regular expression matches only the Git protocol paths of a repository named `*.git`. The block passes them over a Unix socket to `fcgiwrap`, telling it which program to run (`SCRIPT_FILENAME`), where the repositories are (`GIT_PROJECT_ROOT`), that every repository may be served (`GIT_HTTP_EXPORT_ALL` empty means "yes"), and the request path (`PATH_INFO`). `REMOTE_USER local` marks pushes as coming from a user, which `git-http-backend` needs to allow `receive-pack`. `client_max_body_size 50m` allows larger pushes. There is **no authentication**: this server is for local use and is only reachable on `127.0.0.1`.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: both nginx files
+
+**Words you need first.** A **web server** is a program that listens on a port and answers web requests. nginx reads a configuration file made of **blocks** (`name { … }`) and **directives** (`name value;` — each ends with a semicolon).
+
+#### `docker/web/default.conf.template`: the demo application
+
+```nginx
+server {
+  listen 8080;
+  server_name _;
+
+  location = /healthz {
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  location = /version {
+    default_type text/plain;
+    return 200 "${APP_VERSION}\n";
+  }
+
+  location = / {
+    default_type text/plain;
+    return 200 "${GREETING}\n";
+  }
+}
+```
+
+- `server { … }` describes one site. `listen 8080;` listens on port 8080. `server_name _;` matches any host name.
+- `location = /healthz { … }` handles requests for exactly that path: `default_type text/plain;` sets the type of the answer, `return 200 "ok\n";` answers status 200 (success) with the text `ok` and a line break.
+- `/version` returns `${APP_VERSION}` and `/` returns `${GREETING}`. A **template** has `${NAME}` placeholders. The nginx image used here replaces them with the container's environment variables when the container starts (a program called `envsubst` does it) and writes the result to `/etc/nginx/conf.d/default.conf`. So `GREETING` (from the ConfigMap) and `APP_VERSION` (set when the image was built) appear in the page.
+
+#### `docker/git-server/nginx.conf`: the Git server's front
+
+```nginx
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr info;
+
+events { worker_connections 64; }
+
+http {
+  access_log /dev/stdout;
+  client_body_temp_path /tmp/nginx-body;
+  proxy_temp_path /tmp/nginx-proxy;
+  fastcgi_temp_path /tmp/nginx-fastcgi;
+  uwsgi_temp_path /tmp/nginx-uwsgi;
+  scgi_temp_path /tmp/nginx-scgi;
+
+  server {
+    listen 8080;
+    client_max_body_size 50m;
+
+    location = /healthz {
+      default_type text/plain;
+      return 200 "ok\n";
+    }
+
+    location ~ ^/.+\.git/(HEAD|info/refs|objects/info/.*|git-(upload|receive)-pack)$ {
+      include /etc/nginx/fastcgi_params;
+      fastcgi_pass unix:/tmp/fcgiwrap.sock;
+      fastcgi_param SCRIPT_FILENAME /usr/libexec/git-core/git-http-backend;
+      fastcgi_param GIT_PROJECT_ROOT /srv/git;
+      fastcgi_param GIT_HTTP_EXPORT_ALL "";
+      fastcgi_param PATH_INFO $uri;
+      fastcgi_param REMOTE_USER local;
+    }
+  }
+}
+```
+
+- `worker_processes 1;` one worker is enough. `pid /tmp/nginx.pid;` writes its process number under `/tmp` and `error_log /dev/stderr info;` sends errors to standard error, because the container's own files are read-only and the program runs as an ordinary user.
+- `events { worker_connections 64; }` allows 64 simultaneous connections.
+- In `http { … }`: `access_log /dev/stdout;` writes one line per request to standard output (so `kubectl logs` shows it). The five `*_temp_path` lines move nginx's temporary folders to `/tmp`. Inside `server`: `listen 8080;` and `client_max_body_size 50m;` allow pushes up to 50 megabytes. `location = /healthz` answers `ok` for the probes.
+- The big `location ~ ^/.+\.git/(HEAD|info/refs|objects/info/.*|git-(upload|receive)-pack)$ { … }`: the `~` means the path is a **regular expression** (a text pattern); it matches only the paths Git uses on a repository whose name ends in `.git`. For those requests: `include /etc/nginx/fastcgi_params;` loads standard settings; `fastcgi_pass unix:/tmp/fcgiwrap.sock;` hands the request, using a protocol called FastCGI, to the helper program `fcgiwrap` through a socket file; `fastcgi_param SCRIPT_FILENAME …/git-http-backend;` names the program to run; `GIT_PROJECT_ROOT /srv/git` says where the repositories are; `GIT_HTTP_EXPORT_ALL ""` allows every repository to be served; `PATH_INFO $uri` passes the request path; `REMOTE_USER local` names the user (Git refuses pushes without one).
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `docker run --rm -p 18080:8080 -e GREETING=hello -e APP_VERSION=x plainround/web:1.0.0` then `curl -s localhost:18080/healthz` : `ok`.

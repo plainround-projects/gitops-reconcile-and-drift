@@ -40,6 +40,45 @@ rules:
 ```
 (The file writes each rule over several lines.) `ignore:` is a block of paths. `line-length` 140 allows long commands in the workflow. `document-start` requires `---`. `truthy` allows only `true` and `false`, so YAML 1.1 words like `yes`/`on` are errors, and `check-keys: false` lets GitHub Actions' key `on:` pass. `comments` wants two spaces before `# text` that follows a value. `braces` and `brackets` allow one space inside `{ }` and `[ ]` (`target: { kind: Deployment }`) or none (`{}`).
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the whole `.yamllint.yaml`
+
+```yaml
+---
+extends: default
+ignore: |
+  .venv/
+  .work/
+  .work-flux/
+rules:
+  line-length:
+    max: 140
+  document-start:
+    present: true
+  truthy:
+    allowed-values: ["true", "false"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 2
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+```
+
+- `---` starts the YAML document (this repository requires it at the top of every YAML file).
+- `extends: default` starts from yamllint's built-in rules; everything below overrides them.
+- `ignore: |` is a block of text (the `|` keeps line breaks) listing folders to skip: `.venv/` (installed libraries), `.work/` (the working clone of the demo repository) and `.work-flux/` (the same for the Flux cluster).
+- `rules:` is a map of rule names to settings.
+- `line-length: max: 140` allows lines up to 140 characters.
+- `document-start: present: true` demands the `---` line.
+- `truthy: allowed-values: ["true", "false"]` accepts only those two words as booleans. YAML 1.1 also reads `yes`, `no`, `on`, `off` as booleans, which surprises people; this rule flags them. `check-keys: false` does not apply the rule to key names (GitHub Actions uses a key called `on`).
+- `comments: min-spaces-from-content: 2` demands two spaces before a `#` comment that follows content on the same line.
+- `braces` and `brackets`: `min-spaces-inside: 0` and `max-spaces-inside: 1` allow `{}`, `{ a: b }`, `[]` and `[ a ]` but not wider padding.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `.venv/bin/yamllint -s .` : no output.

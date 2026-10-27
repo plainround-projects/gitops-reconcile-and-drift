@@ -67,6 +67,130 @@ patches:
 ### In the scripts
 `kubectl kustomize apps/web/overlays/local | kubeconform ... -` (validation) and `kubectl kustomize ... | kc diff -f -` (what differs from the cluster). `kubectl apply --server-side -k platform/argocd` builds and applies in one step.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: every Kustomize file
+
+**Words you need first.** **Kustomize** builds the final Kubernetes YAML from simple pieces, without templates. A folder becomes a Kustomize unit when it contains a file named exactly `kustomization.yaml`. Every such file starts with `apiVersion` and `kind: Kustomization` (this is **Kustomize's** Kustomization, a file; it is not the same as Flux's `Kustomization`, an object in the cluster).
+
+#### `manifests/apps/web/base/kustomization.yaml`
+
+```yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+```
+
+- `resources:` lists the files (or folders) to include. The four files are the namespace, the ConfigMap, the Deployment and the Service. A file not listed here is ignored, which is why the runbook removes the ConfigMap's file **and** its line from this list when it deletes it from Git.
+
+#### `manifests/apps/web/overlays/local/kustomization.yaml`
+
+```yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+images:
+  - name: plainround/web
+    newTag: 1.0.0
+```
+
+- An **overlay** includes a base and changes small things. `resources: - ../../base` includes the folder two levels up. `images:` rewrites the tag of the image named `plainround/web` everywhere it appears: `newTag: 1.0.0`. The bad-commit step changes this one line to `1.1.0`.
+
+#### `platform/git-server/kustomization.yaml`
+
+```yaml
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - git-server.yaml
+```
+
+- Lists the single file with all the Git server objects.
+
+#### `platform/argocd/kustomization.yaml` and `platform/flux/kustomization.yaml`
+
+```yaml
+---
+# Argo CD at the version in versions.env (the tag below must match ARGOCD_VERSION), trimmed for a laptop:
+# no Dex (no single sign-on), no notifications, and a short poll interval so the runbook does not wait
+# three minutes for every change.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: argocd
+resources:
+  - namespace.yaml
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v3.5.6/manifests/install.yaml
+patches:
+  - path: controller-settings.yaml
+  - target: { kind: Deployment, name: argocd-dex-server }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-dex-server
+  - target: { kind: Deployment, name: argocd-notifications-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: argocd-notifications-controller
+```
+
+- `namespace: argocd` puts every built object in that namespace.
+- Under `resources`, a plain address starting with `https://` is downloaded and built; here the official install file of Argo CD at version `v3.5.6` (the version is in the address, so it cannot change silently).
+- `patches:` changes parts of the downloaded objects. `path: controller-settings.yaml` merges that file into the object with the same kind and name (`argocd-cm`). The two others use `target:` to pick an object (`kind: Deployment`, `name: argocd-dex-server`) and a `patch: |-` block (a block of text, written under a `|-`) whose content is `$patch: delete` plus the object's identity: it tells Kustomize to **remove** that object from the result. The same is done for the notifications controller.
+
+```yaml
+---
+# Flux at the version in versions.env (the tag below must match FLUX_VERSION), trimmed to the two controllers
+# a plain Git-to-cluster sync needs: no Helm, notification or image-automation controllers.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - https://github.com/fluxcd/flux2/releases/download/v2.10.0/install.yaml
+patches:
+  - target: { kind: Deployment, name: helm-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: helm-controller
+  - target: { kind: Deployment, name: notification-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: notification-controller
+  - target: { kind: Deployment, name: image-reflector-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: image-reflector-controller
+  - target: { kind: Deployment, name: image-automation-controller }
+    patch: |-
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: image-automation-controller
+```
+
+- The same method for Flux at version `v2.10.0`: download the install file and delete four controllers the lesson does not use (Helm, notifications, image reflector and image automation), leaving the two it needs (source and kustomize controllers).
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `kubectl kustomize manifests/apps/web/overlays/local | grep image:` : `image: plainround/web:1.0.0`.

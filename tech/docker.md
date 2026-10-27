@@ -73,6 +73,18 @@ ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/entrypoint.sh"]
 ### `scripts/build-images.sh`
 `docker build --quiet --tag plainround/web:1.0.0 --build-arg BASE_IMAGE=... --build-arg APP_VERSION=1.0.0 docker/web`. `--quiet` prints only the image id (thrown away). Then `provider_load_images` imports the three images into the cluster node.
 
+<!-- full-walkthrough:begin -->
+### 5.A Full walkthrough: the remaining Dockerfile line
+
+The other lines of both Dockerfiles are walked through in section 5 above. One more line of the Git server's Dockerfile:
+
+```dockerfile
+ARG BASE_IMAGE=alpine:3.24.3
+```
+
+- `ARG BASE_IMAGE=alpine:3.24.3` declares a build-time setting with a default: the base image is Alpine Linux 3.24.3, a very small Linux. `scripts/build-images.sh` overrides it with the same version **pinned by its checksum** (`versions.env`: `alpine:3.24.3@sha256:…`), so the base cannot change silently. The next line, `FROM ${BASE_IMAGE}`, uses it.
+<!-- full-walkthrough:end -->
+
 ## 6. Try it yourself
 
 1. `docker image ls plainround/*` : shows the three local images.
