@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Creates the working clone of gitops-demo from manifests/ and pushes it to the in-cluster Git server.
-#   seed-repo.sh            create the clone if it is missing (and push)
+#   seed-repo.sh            create the clone if it is missing; push the clone either way
 #   seed-repo.sh --reset    throw the clone away and start again from one initial commit
 # The clone has a pre-push hook that runs scripts/validate.sh, the same check the CI runs.
 set -euo pipefail
@@ -13,6 +13,8 @@ fi
 
 if [ -d "${WORK_CLONE}/.git" ]; then
   log "working clone already exists at ${WORK_CLONE#"${ROOT}"/}"
+  # A new cluster has an empty Git server even when an old clone is left over: put the clone's history on it.
+  work_git push --quiet --force origin main
   exit 0
 fi
 

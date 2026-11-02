@@ -412,11 +412,13 @@ class Kube:
 ```python
     def field_managers(self, kind: str, name: str, namespace: str) -> set[str]:
         """The names recorded in managedFields: who has written to this object."""
-        managed = self.get(kind, name, namespace)["metadata"].get("managedFields", [])
+        # kubectl leaves managedFields out of its output unless asked.
+        text = self.kubectl("get", kind, name, "-n", namespace, "-o", "json", "--show-managed-fields").stdout
+        managed = json.loads(text)["metadata"].get("managedFields", [])
         return {entry["manager"] for entry in managed}
 ```
 
-- Kubernetes records who wrote each field in `metadata.managedFields`. This method returns the set of **manager names** (`{entry["manager"] for entry in managed}` is a **set comprehension**: a set holds each value once). A test uses it to show that the Deployment was written by Argo CD's controller and not by `kubectl`.
+- Kubernetes records who wrote each field in `metadata.managedFields`. `kubectl get` hides that field unless `--show-managed-fields` is given (the first live run found the set empty because of this), so the method runs `kubectl get` itself and parses the text with `json.loads`. It returns the set of **manager names** (`{entry["manager"] for entry in managed}` is a **set comprehension**: a set holds each value once). A test uses it to show that the Deployment was written by Argo CD's controller and not by `kubectl`.
 
 ```python
     def get_through_service(self, namespace: str, service: str, path: str = "/") -> str:

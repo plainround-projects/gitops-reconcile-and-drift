@@ -98,13 +98,16 @@ export ROOT
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 if [ -f "${ROOT}/.env" ]; then
+  # A cluster name given by the caller (scripts/compare/env.sh points the scripts at the second cluster) wins over .env.
+  caller_cluster="${CLUSTER_NAME-}"
   # shellcheck source=/dev/null
   source "${ROOT}/.env"
+  [ -z "${caller_cluster}" ] || CLUSTER_NAME="${caller_cluster}"
 fi
 ```
 - `versions.env` is a plain file of lines like `ARGOCD_VERSION=v3.5.6`. Sourcing it creates those variables. This puts every version number in one place.
 - `if [ -f path ]; then … fi` is a test. `[ … ]` is a command that checks a condition and returns success or failure. `-f` means "this is an existing regular file". So the next line runs only when a `.env` file exists. `fi` ends the `if` (it is "if" backwards).
-- `.env` holds settings a person may change locally. It is optional, so it is loaded only if it exists.
+- `.env` holds settings a person may change locally. It is optional, so it is loaded only if it exists. Because `.env` is *sourced*, it can set any variable, including `CLUSTER_NAME`, and it is read after the caller's environment. The lines around it keep the caller's cluster name: `${CLUSTER_NAME-}` is the current value or empty text (the single `-` form does not stop on an unset variable), it is saved in `caller_cluster` before `.env` is sourced, and `[ -z "${caller_cluster}" ] || CLUSTER_NAME="${caller_cluster}"` puts it back afterwards if one was given (`-z` tests for empty text). Without this, `make compare` found that the cluster named in `.env` already existed and installed Flux into the Argo CD cluster instead of creating the second one.
 - The comments starting `# shellcheck source=` tell ShellCheck which file is loaded on the next line, because a tool reading the text cannot know the value of `${ROOT}`.
 
 ```bash
@@ -226,11 +229,11 @@ work_head() { work_git rev-parse HEAD; }
 commit_and_push() {
   work_git add --all
   work_git commit --quiet -m "$1"
-  work_git push --quiet origin main
+  work_git push --quiet origin main >&2  # the pre-push hook prints its report on stdout; this function's stdout is the commit
   work_head
 }
 ```
-- Makes a commit of everything changed in the working clone and sends it to the server. `add --all` stages all changes; `commit -m "message"` records them (`--quiet` hides the summary); `push origin main` uploads the branch `main` to the remote called `origin`. The last line prints the new commit hash; callers capture it with `sha="$(commit_and_push "message")"`.
+- Makes a commit of everything changed in the working clone and sends it to the server. `add --all` stages all changes; `commit -m "message"` records them (`--quiet` hides the summary); `push origin main` uploads the branch `main` to the remote called `origin`. The last line prints the new commit hash; callers capture it with `sha="$(commit_and_push "message")"`. Because the caller captures everything the function prints on standard output, the push is redirected with `>&2` (send standard output to standard error): the working clone's pre-push hook runs `kubeconform` and prints its summary on standard output, and without the redirect that summary ended up inside the captured "commit hash" (the first live run showed `pushed Summary; waiting for ...`).
 
 ```bash
 refresh_app() {
@@ -568,11 +571,13 @@ fi
 
 if [ -d "${WORK_CLONE}/.git" ]; then
   log "working clone already exists at ${WORK_CLONE#"${ROOT}"/}"
+  # A new cluster has an empty Git server even when an old clone is left over: put the clone's history on it.
+  work_git push --quiet --force origin main
   exit 0
 fi
 ```
 - `${1:-}` is the first argument, or empty text if none (with `set -u`, an unset `$1` would be an error). With `--reset`, the working clone is deleted first.
-- `[ -d path ]` tests that a **directory** exists. A `.git` folder inside means "this is already a Git repository", so the script stops with `exit 0` (success). `${WORK_CLONE#"${ROOT}"/}` removes the repository folder from the front of the path so the message is short.
+- `[ -d path ]` tests that a **directory** exists. A `.git` folder inside means "this is already a Git repository", so the script pushes that clone's `main` to the server (`--force`, because a new cluster has an empty server and an old clone may be ahead of or different from what an earlier run left there; without this push a leftover clone and a fresh cluster meant the controller found an empty repository: `remote repository is empty`) and then stops with `exit 0` (success). `${WORK_CLONE#"${ROOT}"/}` removes the repository folder from the front of the path so the message is short.
 
 ```bash
 mkdir -p "${WORK_CLONE}"
@@ -884,7 +889,10 @@ if work_git push origin main; then die "the hook let an invalid manifest through
 
 echo "--- 2. skipping the hook (--no-verify): the cluster refuses it:"
 work_git push --quiet --no-verify origin main
-operation_failed() { [[ "$(app_field '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]]; }
+# The controller retries a failed automated sync with a growing delay, so the phase can stay Running; the message says what failed.
+operation_failed() {
+  [[ "$(app_field '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]] || [[ "$(app_field '{.status.operationState.message}')" == *"completed unsuccessfully"* ]]
+}
 wait_for "the controller to report a failed sync" 120 operation_failed
 echo "operation phase: $(app_field '{.status.operationState.phase}')"
 echo "message: $(app_field '{.status.operationState.message}' | cut -c1-200)"
@@ -898,6 +906,7 @@ wait_for "the app Synced and Healthy again" "${WAIT_TIMEOUT}" app_synced_and_hea
 - Defense 1: the push is **expected to fail** because the Git hook (which runs the manifest check) rejects it. `if command; then die …; fi` reverses the usual use: if the push succeeds, the script stops with an error.
 - Defense 2: `--no-verify` skips the hook. The push succeeds, but the cluster refuses the object, and Argo CD reports a failed sync. `[[ … =~ regex ]]` is Bash's own pattern test (double brackets); the regex `^(Failed|Error)$` means the whole text is `Failed` or `Error`. The script prints the first 200 characters of the message and shows that the live replica count did not change.
 - Recovery: revert and push.
+- Defense 2: `operation_failed` is a function that succeeds when the controller reports the failed sync, and `wait_for` re-runs it every second for up to 120 seconds. It accepts two signs: the operation phase is `Failed` or `Error`, **or** the operation's message contains `completed unsuccessfully`. The second sign exists because the first live run showed that an automated sync which the API server refuses (here with `unrecognized type: int32`, since `replicas` is the text `many`) is retried with a growing delay, and while it retries the phase reads `Running` and only the message says what happened (`one or more synchronization tasks completed unsuccessfully ... Retrying attempt #4`). `[[ a ]] || [[ b ]]` means "a or b", and `*"text"*` in `[[ ... == ... ]]` is a pattern that matches any text containing `text`.
 
 ---
 
@@ -945,6 +954,7 @@ wait_for "the Flux Kustomization to be Ready" "${WAIT_TIMEOUT}" \
 kustomization_field() { kc -n flux-system get kustomization web -o "jsonpath=${1}" 2>/dev/null || true; }
 ready() { kustomization_field '{.status.conditions[?(@.type=="Ready")].status}'; }
 ready_is() { [ "$(ready)" = "$1" ]; }
+applied() { [[ "$(kustomization_field '{.status.lastAppliedRevision}')" == *"$1"* ]]; }
 configmap_present() { kc -n "${APP_NAMESPACE}" get configmap web-config >/dev/null 2>&1; }
 configmap_gone() { ! configmap_present; }
 replicas_are() { [ "$(deploy_field '{.spec.replicas}')" = "$1" ]; }
@@ -953,7 +963,7 @@ drift_reverted() { replicas_are 2 && greeting_is hello; }
 
 wait_for "Flux Ready before the experiments" "${WAIT_TIMEOUT}" ready_is True
 ```
-- Small question-functions, as in `lib.sh`, but for Flux's object (a Flux `Kustomization` reports `Ready` True or False).
+- Small question-functions, as in `lib.sh`, but for Flux's object (a Flux `Kustomization` reports `Ready` True or False). `applied` asks whether the revision Flux last applied contains the given commit hash (`*"$1"*` is a pattern meaning "any text around this one"); it is how the script waits for Flux to have *seen* a particular commit.
 
 ```bash
 # 1. Self-healing: nothing to switch on.
@@ -966,21 +976,33 @@ echo "RESULT drift: replicas 5 -> $(deploy_field '{.spec.replicas}') and GREETIN
 - The same drift as with Argo CD. Flux needs no option for self-healing because it re-applies Git on every interval. The line starting `RESULT` is read by the test.
 
 ```bash
-# 2. Pruning
-work_git rm --quiet apps/web/base/configmap.yaml
-perl -ni -e 'print unless /^  - configmap.yaml$/' "${WORK_CLONE}/apps/web/base/kustomization.yaml"
-deletion="$(commit_and_push "Delete the web ConfigMap")"
+# 2. Pruning: off by default, one field to turn on, and no OutOfSync flag while it is off.
+delete_the_configmap() {
+  work_git rm --quiet apps/web/base/configmap.yaml
+  perl -ni -e 'print unless /^  - configmap.yaml$/' "${WORK_CLONE}/apps/web/base/kustomization.yaml"
+  commit_and_push "Delete the web ConfigMap"
+}
+bring_the_configmap_back() { # <the deleting commit>
+  work_git revert --no-edit "$1" >/dev/null
+  work_git push --quiet origin main
+  # Wait for Flux to have applied this very commit: if the next commit lands first, Flux may never see this one.
+  wait_for "Flux to apply the commit that brings the ConfigMap back" 240 applied "$(work_head)"
+  wait_for "the ConfigMap to come back" 120 configmap_present
+  wait_for "Flux Ready again" 120 ready_is True
+}
+deletion="$(delete_the_configmap)"
 sleep 40
 echo "RESULT prune-off: ConfigMap $(configmap_present && echo present || echo gone) after 40s, Kustomization Ready=$(ready) (Flux raises no out-of-sync flag)"
 kc -n flux-system patch kustomization web --type merge -p '{"spec":{"prune":true}}' >/dev/null
-wait_for "Flux to prune the ConfigMap" 120 configmap_gone
-echo "RESULT prune-on: ConfigMap gone after spec.prune=true"
-work_git revert --no-edit "${deletion}" >/dev/null
-work_git push --quiet origin main
-wait_for "the ConfigMap to come back" 120 configmap_present
-wait_for "Flux Ready again" 120 ready_is True
+# While prune was off, Flux dropped the ConfigMap from its inventory, so turning prune on does not remove it. Put it back,
+# then delete it again, now that Flux tracks it and is allowed to prune.
+bring_the_configmap_back "${deletion}"
+deletion="$(delete_the_configmap)"
+wait_for "Flux to prune the ConfigMap" 240 configmap_gone
+echo "RESULT prune-on: ConfigMap gone after spec.prune=true and a new deletion (an object dropped while prune was off stays behind)"
+bring_the_configmap_back "${deletion}"
 ```
-- Delete the file; with prune off the object stays after 40 seconds; turn prune on and the object disappears; revert brings it back.
+- With prune off, deleting the file from Git leaves the object in the cluster (after 40 seconds it is still there, and `Ready` is still `True`: Flux raises no out-of-sync flag). Flux keeps an **inventory** of the objects it applied; while pruning is off, it drops an object that is no longer in Git from that inventory, so the object is left behind for good. This is why the first live run, which simply turned `prune` on afterwards, waited in vain for the ConfigMap to disappear. The script now turns `prune` on, brings the ConfigMap back with `git revert` (`bring_the_configmap_back`, a function with a comment line after its name that names its argument), waits until Flux has applied *that exact commit* (`applied "$(work_head)"`; without the wait the next commit could land first and Flux would never see the restored ConfigMap, so it would not track it) and then deletes the ConfigMap again: now Flux is tracking it and is allowed to prune, and it disappears. `delete_the_configmap` is a function that makes the commit and prints its hash, which `deletion="$(...)"` captures.
 
 ```bash
 # 3. Health

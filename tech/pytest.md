@@ -472,13 +472,13 @@ def test_an_invalid_manifest_is_refused_by_the_hook_and_by_the_api_server(kube: 
 
     assert "1. the pre-push hook refuses it" in output
     assert "replicas" in output
-    assert "operation phase: Error" in output or "operation phase: Failed" in output
+    assert "completed unsuccessfully" in output  # the controller's message; its phase may read Running while it retries
     assert kube.deployment_replicas(NAMESPACE, "web") == replicas_before
     state = kube.application(APP)
     assert (state.sync_status, state.health_status) == ("Synced", "Healthy")
 ```
 
-- Remember the replica count; run the script; assert its output shows the hook refusing (`1. the pre-push hook refuses it`) and mentions `replicas`; assert the operation phase was `Error` or `Failed`; the live replica count did **not** change; and the app ends `Synced` and `Healthy` after the revert. `(a, b) == ("Synced", "Healthy")` compares two values at once as a pair.
+- Remember the replica count; run the script; assert its output shows the hook refusing (`1. the pre-push hook refuses it`) and mentions `replicas`; assert the controller's message says the synchronization "completed unsuccessfully" (its phase may read `Running` while it retries); the live replica count did **not** change; and the app ends `Synced` and `Healthy` after the revert. `(a, b) == ("Synced", "Healthy")` compares two values at once as a pair.
 
 #### `tests/compare/test_flux_behaviors.py`
 

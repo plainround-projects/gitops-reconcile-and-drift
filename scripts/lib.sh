@@ -9,8 +9,11 @@ export ROOT
 # shellcheck source=../versions.env
 source "${ROOT}/versions.env"
 if [ -f "${ROOT}/.env" ]; then
+  # A cluster name given by the caller (scripts/compare/env.sh points the scripts at the second cluster) wins over .env.
+  caller_cluster="${CLUSTER_NAME-}"
   # shellcheck source=/dev/null
   source "${ROOT}/.env"
+  [ -z "${caller_cluster}" ] || CLUSTER_NAME="${caller_cluster}"
 fi
 
 CLUSTER_NAME="${CLUSTER_NAME:-gitops-drift}"
@@ -84,7 +87,7 @@ work_head() { work_git rev-parse HEAD; }
 commit_and_push() {
   work_git add --all
   work_git commit --quiet -m "$1"
-  work_git push --quiet origin main
+  work_git push --quiet origin main >&2  # the pre-push hook prints its report on stdout; this function's stdout is the commit
   work_head
 }
 

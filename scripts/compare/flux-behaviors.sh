@@ -9,6 +9,7 @@ source "${COMPARE_ROOT}/scripts/lib.sh"
 kustomization_field() { kc -n flux-system get kustomization web -o "jsonpath=${1}" 2>/dev/null || true; }
 ready() { kustomization_field '{.status.conditions[?(@.type=="Ready")].status}'; }
 ready_is() { [ "$(ready)" = "$1" ]; }
+applied() { [[ "$(kustomization_field '{.status.lastAppliedRevision}')" == *"$1"* ]]; }
 configmap_present() { kc -n "${APP_NAMESPACE}" get configmap web-config >/dev/null 2>&1; }
 configmap_gone() { ! configmap_present; }
 replicas_are() { [ "$(deploy_field '{.spec.replicas}')" = "$1" ]; }
@@ -25,18 +26,30 @@ wait_for "Flux to revert the drift" 120 drift_reverted
 echo "RESULT drift: replicas 5 -> $(deploy_field '{.spec.replicas}') and GREETING hacked -> hello in $((SECONDS - started))s with prune=false and no self-heal setting"
 
 # 2. Pruning: off by default, one field to turn on, and no OutOfSync flag while it is off.
-work_git rm --quiet apps/web/base/configmap.yaml
-perl -ni -e 'print unless /^  - configmap.yaml$/' "${WORK_CLONE}/apps/web/base/kustomization.yaml"
-deletion="$(commit_and_push "Delete the web ConfigMap")"
+delete_the_configmap() {
+  work_git rm --quiet apps/web/base/configmap.yaml
+  perl -ni -e 'print unless /^  - configmap.yaml$/' "${WORK_CLONE}/apps/web/base/kustomization.yaml"
+  commit_and_push "Delete the web ConfigMap"
+}
+bring_the_configmap_back() { # <the deleting commit>
+  work_git revert --no-edit "$1" >/dev/null
+  work_git push --quiet origin main
+  # Wait for Flux to have applied this very commit: if the next commit lands first, Flux may never see this one.
+  wait_for "Flux to apply the commit that brings the ConfigMap back" 240 applied "$(work_head)"
+  wait_for "the ConfigMap to come back" 120 configmap_present
+  wait_for "Flux Ready again" 120 ready_is True
+}
+deletion="$(delete_the_configmap)"
 sleep 40
 echo "RESULT prune-off: ConfigMap $(configmap_present && echo present || echo gone) after 40s, Kustomization Ready=$(ready) (Flux raises no out-of-sync flag)"
 kc -n flux-system patch kustomization web --type merge -p '{"spec":{"prune":true}}' >/dev/null
-wait_for "Flux to prune the ConfigMap" 120 configmap_gone
-echo "RESULT prune-on: ConfigMap gone after spec.prune=true"
-work_git revert --no-edit "${deletion}" >/dev/null
-work_git push --quiet origin main
-wait_for "the ConfigMap to come back" 120 configmap_present
-wait_for "Flux Ready again" 120 ready_is True
+# While prune was off, Flux dropped the ConfigMap from its inventory, so turning prune on does not remove it. Put it back,
+# then delete it again, now that Flux tracks it and is allowed to prune.
+bring_the_configmap_back "${deletion}"
+deletion="$(delete_the_configmap)"
+wait_for "Flux to prune the ConfigMap" 240 configmap_gone
+echo "RESULT prune-on: ConfigMap gone after spec.prune=true and a new deletion (an object dropped while prune was off stays behind)"
+bring_the_configmap_back "${deletion}"
 
 # 3. Health: Ready=False when an applied object is not healthy (kstatus, because spec.wait is true).
 perl -pi -e 's/newTag: 1\.0\.0/newTag: 1.1.0/' "${WORK_CLONE}/apps/web/overlays/local/kustomization.yaml"

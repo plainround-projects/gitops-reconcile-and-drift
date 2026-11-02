@@ -15,7 +15,7 @@ def test_an_invalid_manifest_is_refused_by_the_hook_and_by_the_api_server(kube: 
 
     assert "1. the pre-push hook refuses it" in output
     assert "replicas" in output
-    assert "operation phase: Error" in output or "operation phase: Failed" in output
+    assert "completed unsuccessfully" in output  # the controller's message; its phase may read Running while it retries
     assert kube.deployment_replicas(NAMESPACE, "web") == replicas_before
     state = kube.application(APP)
     assert (state.sync_status, state.health_status) == ("Synced", "Healthy")

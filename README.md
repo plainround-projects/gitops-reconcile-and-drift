@@ -63,7 +63,7 @@ What each controller does with the three behaviors, as the Argo CD runbook and `
 | Behavior | Argo CD | Flux |
 | --- | --- | --- |
 | **Self-healing** | Opt-in: `syncPolicy.automated.selfHeal`, default `false`. With it off, a manual edit is reported as `OutOfSync` and left alone; with it on, the controller's watch reverts it within seconds. | No switch: the `Kustomization` applies Git again on every `interval` (10 seconds here), so a manual scale and a ConfigMap edit were reverted without any setting. A person who wants the edit to stay has to suspend the `Kustomization`. |
-| **Pruning** | A separate flag: `syncPolicy.automated.prune`, default `false`. With it off, the deleted file's object stays and is listed as needing pruning, and the Application is `OutOfSync`. | A separate flag: `spec.prune`, default `false`. With it off, the object stays and Flux reports `Ready=True`: there is no out-of-sync flag to see. With it on, the object is removed. |
+| **Pruning** | A separate flag: `syncPolicy.automated.prune`, default `false`. With it off, the deleted file's object stays and is listed as needing pruning, and the Application is `OutOfSync`. | A separate flag: `spec.prune`, default `false`. With it off, the object stays and Flux reports `Ready=True`: there is no out-of-sync flag to see. With it on, an object deleted from Git afterwards is removed; one deleted *while it was off* is dropped from Flux's inventory and stays behind even after the flag is turned on (the run showed this, so the comparison puts the object back and deletes it again). |
 | **Health** | Lua health checks per resource kind, shown as `Healthy`, `Progressing` or `Degraded` beside the sync status. A Deployment whose rollout exceeded its progress deadline is `Degraded`. | kstatus, used when `spec.wait: true` (or `healthChecks`): the `Kustomization` is `Ready=False` until the applied objects are healthy, and `Ready=True` again after the revert. Sync and health are one condition, not two statuses. |
 
 The Flux column is asserted by `tests/compare/test_flux_behaviors.py`, which `make compare` runs.
@@ -122,19 +122,27 @@ Dependency rule: tests depend on the scripts and on `tests/support`; scripts dep
 
 ## Verification status
 
-Verified on 2026-10-27 in the session that built this repository:
+Verified on 2026-10-27 (offline) and 2026-11-02 (live) in the sessions that built this repository:
 
 - `make lint`: yamllint, shellcheck, ruff, mypy and `scripts/validate.sh` (kubectl kustomize and kubeconform against the Kubernetes and Argo CD schemas) all pass.
 - `make test-offline`: the unit tests of the helpers (100 percent coverage of `tests/support`), the manifest conformance tests and the validation-gate tests pass; `scripts/validate.sh` refuses a string where a number belongs, an unknown field and a misspelled `Application` field.
 - The images build, and the demo web image was run read-only and non-root and answered `/`, `/version` and `/healthz`.
 
-Not completed in that session, and why: the Mac the repositories were built on was out of memory and swap for most of the night (swap at about 70 GB, load average above 150, Docker's virtual machine at full CPU, and its disk went read-only once), shared with a dozen other builds. kind's control plane failed to start about fifteen times in a row (kubeadm's fixed deadlines), which is why k3d is the default provider; a k3d cluster did start, but its API server then stopped answering and `make up` could not finish. The cluster/stack commands above are written to run on a quiet machine (`make up && make test && make compare`); until they have run once on yours, treat the runbook, the cluster tests and the Flux comparison as unproven. Nothing in this repository was marked passing that did not run.
+The live run, on 2026-11-02 (k3d, on a Docker whose virtual machine has 7.7 GiB of memory and was shared with about two dozen containers of other projects):
 
-Pending capacity (nothing below ran; each is a Docker or cluster step):
+- `make up` creates the cluster, builds and loads the images, installs the Git server and Argo CD, seeds the repository and waits until the web app is Synced and Healthy.
+- `make test-cluster` passes 13 of 13 (the first sync with the workloads written by the controller and not by `kubectl`; a commit that scales the app and changes the greeting; drift reported and left alone with self-heal off, and reverted with it on; pruning off and on; rollback with `git revert`; an invalid manifest refused by the hook and by the API server) in about nine minutes.
+- `make compare` passes 3 of 3 (Flux reverts drift with no setting, leaves a deleted object alone until pruning is on, and reports an unhealthy rollout as `Ready=False` and recovers on revert) in about five and a half minutes, on a second cluster that the command deletes afterwards.
+- `make down` deleted the cluster and the working clone afterwards.
 
-- `make up`: pending capacity: run `make up` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
-- `make test-cluster`: pending capacity: run `make test-cluster` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
-- `make compare`: pending capacity: run `make compare` after Docker Desktop is restarted with free disk (Docker.raw was at its 60 GiB cap on 2026-10-28).
+What the live runs found that the offline checks could not (all fixed):
+
+- `make up` timed out when a working clone from an earlier run was left over: the seed step skipped the push, so Argo CD found an empty repository. The clone is now pushed either way.
+- `commit_and_push` printed the pre-push hook's report on standard output, and the scripts capture that output as the commit hash (`pushed Summary; waiting ...`). The push now sends its output to standard error.
+- `kubectl get` leaves `metadata.managedFields` out unless `--show-managed-fields` is given, so the test of who wrote the Deployment saw an empty set.
+- A sync the API server refuses is retried with a growing delay and the operation phase stays `Running`; only its message says it "completed unsuccessfully". The bad-manifest script and test read the message.
+- `.env` set the cluster name and overrode the second cluster's, so `make compare` installed Flux into the Argo CD cluster. A name given by the caller now wins.
+- Flux drops an object from its inventory while pruning is off, so turning pruning on later never removes it, and a restored object that Flux has not yet applied is not tracked either; the comparison puts the object back, waits until Flux has applied that commit, and deletes it again.
 
 ## Author and license
 

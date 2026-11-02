@@ -16,7 +16,10 @@ if work_git push origin main; then die "the hook let an invalid manifest through
 
 echo "--- 2. skipping the hook (--no-verify): the cluster refuses it:"
 work_git push --quiet --no-verify origin main
-operation_failed() { [[ "$(app_field '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]]; }
+# The controller retries a failed automated sync with a growing delay, so the phase can stay Running; the message says what failed.
+operation_failed() {
+  [[ "$(app_field '{.status.operationState.phase}')" =~ ^(Failed|Error)$ ]] || [[ "$(app_field '{.status.operationState.message}')" == *"completed unsuccessfully"* ]]
+}
 wait_for "the controller to report a failed sync" 120 operation_failed
 echo "operation phase: $(app_field '{.status.operationState.phase}')"
 echo "message: $(app_field '{.status.operationState.message}' | cut -c1-200)"

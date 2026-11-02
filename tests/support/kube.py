@@ -83,7 +83,9 @@ class Kube:
 
     def field_managers(self, kind: str, name: str, namespace: str) -> set[str]:
         """The names recorded in managedFields: who has written to this object."""
-        managed = self.get(kind, name, namespace)["metadata"].get("managedFields", [])
+        # kubectl leaves managedFields out of its output unless asked.
+        text = self.kubectl("get", kind, name, "-n", namespace, "-o", "json", "--show-managed-fields").stdout
+        managed = json.loads(text)["metadata"].get("managedFields", [])
         return {entry["manager"] for entry in managed}
 
     def get_through_service(self, namespace: str, service: str, path: str = "/") -> str:
