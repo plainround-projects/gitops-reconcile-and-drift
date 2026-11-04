@@ -1,0 +1,126 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880" role="img" aria-labelledby="t d">
+<title id="t">A cluster that follows a Git repository</title>
+<desc id="d">You edit, commit and push in the working clone .work/gitops-demo on the host, which pushes over 127.0.0.1:30418 to the Git server inside the local k3d cluster. In the namespace argocd, the repo-server fetches Git every 20 seconds, the application-controller compares and applies, and the Application web with its syncPolicy of selfHeal and prune configures the controller. The controller applies and prunes the Deployment web and the ConfigMap web-config in the namespace web, where the Service web selects the Deployment, and it watches the live state. Amber: you scale and patch the Deployment by hand, the drift experiment.</desc>
+<style>
+:root{--paper:#ffffff;--ink:#10243d;--mute:#52677f;--accent:#0a6aa8;--good:#19743f;--warn:#8a5a00}
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;fill:var(--ink)}
+.title{font-family:Georgia,'Iowan Old Style','Times New Roman',serif;font-size:36px}
+.caption{font-size:16px;fill:var(--mute)}
+.name{font-size:20px;font-weight:600}
+.lane{font-size:17px;font-weight:600}
+.sub{font-size:15px;fill:var(--mute)}
+.label{font-size:15px}
+.tag{font-size:15px;fill:var(--mute)}
+.num{font-size:15px;font-weight:700;fill:var(--paper)}
+.legend{font-size:14px;fill:var(--mute)}
+.t-accent{fill:var(--accent)}
+.t-good{fill:var(--good)}
+.t-warn{fill:var(--warn)}
+.t-ink{fill:var(--ink)}
+.b{font-weight:600}
+.paper{fill:var(--paper);stroke:var(--mute);stroke-opacity:.3}
+.grid{fill:url(#grid)}
+.boundary{fill:var(--mute);fill-opacity:.035;stroke:var(--mute);stroke-opacity:.7;stroke-dasharray:6 5}
+.svc{fill:var(--accent);fill-opacity:.08;stroke:var(--accent);stroke-width:1.25}
+.store{fill:var(--mute);fill-opacity:.1;stroke:var(--mute);stroke-width:1.25}
+.rim{fill:none;stroke:var(--mute);stroke-width:1.25}
+.actor{fill:none;stroke:var(--mute);stroke-width:1.25}
+.slot{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-width:1}
+.note{fill:var(--warn);fill-opacity:.09;stroke:var(--warn);stroke-width:1}
+.win{fill:var(--good);fill-opacity:.09;stroke:var(--good);stroke-width:1}
+.hair{fill:none;stroke:var(--mute);stroke-opacity:.4;stroke-width:1}
+.zone{fill:var(--accent);fill-opacity:.045;stroke:var(--accent);stroke-width:1.25;stroke-dasharray:6 5}
+.stop{fill:none;stroke:var(--warn);stroke-width:4;stroke-linecap:round}
+.mask{fill:var(--paper)}
+.sync,.async,.read,.fail,.ok{fill:none}
+.sync{stroke:var(--accent);stroke-width:1.75;marker-end:url(#a-sync)}
+.async{stroke:var(--accent);stroke-width:1.75;stroke-dasharray:8 6;marker-end:url(#a-async)}
+.read{stroke:var(--mute);stroke-width:1.75;stroke-linecap:round;stroke-dasharray:1 6;marker-end:url(#a-read)}
+.fail{stroke:var(--warn);stroke-width:2;marker-end:url(#a-fail)}
+.ok{stroke:var(--good);stroke-width:1.75;marker-end:url(#a-ok)}
+.dot{fill:var(--accent)}
+.dot-w{fill:var(--warn)}
+.dot-g{fill:var(--good)}
+.head-sync,.head-async{stroke:var(--accent)}
+.head-sync{fill:var(--accent)}
+.head-async,.head-read{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.head-read{stroke:var(--mute)}
+.head-fail{fill:var(--warn)}
+.head-ok{fill:var(--good)}
+.gridline{fill:none;stroke:var(--mute);stroke-opacity:.09}
+</style>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="gridline" d="M40 0H0V40"/></pattern>
+<marker id="a-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-sync" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-async" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-async" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-read" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-fail" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-ok" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="paper" x="0.5" y="0.5" width="1199" height="879" rx="16"/>
+<rect class="grid" x="1" y="1" width="1198" height="878" rx="16"/>
+<text class="title" x="48" y="68">A cluster that follows a Git repository</text>
+<text class="caption" x="48" y="100">The controller pulls from Git and compares with live objects. Amber: a hand edit, the drift experiment.</text>
+<rect class="boundary" x="48" y="132" width="248" height="170" rx="14"/>
+<text class="tag" x="64" y="160">Host</text>
+<path class="store" d="M64 180a108 12 0 0 1 216 0v84a108 12 0 0 1 -216 0z"/>
+<path class="rim" d="M64 180a108 12 0 0 0 216 0"/>
+<text class="name" x="172" y="220" text-anchor="middle">gitops-demo</text>
+<text class="sub" x="172" y="242" text-anchor="middle">.work/gitops-demo</text>
+<text class="sub" x="172" y="264" text-anchor="middle">working clone</text>
+<rect class="actor" x="48" y="380" width="248" height="72" rx="36"/>
+<text class="name" x="172" y="412" text-anchor="middle">You</text>
+<text class="sub" x="172" y="434" text-anchor="middle">scripts/runbook</text>
+<rect class="boundary" x="416" y="132" width="736" height="628" rx="14"/>
+<text class="tag" x="432" y="160">Local cluster (k3d)</text>
+<rect class="svc" x="440" y="182" width="232" height="92" rx="12"/>
+<text class="name" x="456" y="214">Git server</text>
+<text class="sub" x="456" y="238">namespace git-server</text>
+<text class="sub" x="456" y="260">NodePort 30418</text>
+<rect class="boundary" x="440" y="330" width="344" height="400" rx="14"/>
+<text class="tag" x="456" y="358">namespace argocd</text>
+<rect class="svc" x="464" y="378" width="296" height="76" rx="12"/>
+<text class="name" x="480" y="410">repo-server</text>
+<text class="sub" x="480" y="434">renders the overlay</text>
+<rect class="svc" x="464" y="486" width="296" height="108" rx="12"/>
+<text class="name" x="480" y="518">application-controller</text>
+<text class="sub" x="480" y="542">compare, apply, prune</text>
+<text class="sub" x="480" y="564">watches live state</text>
+<rect class="svc" x="464" y="626" width="296" height="92" rx="12"/>
+<text class="name" x="480" y="658">Application web</text>
+<text class="sub" x="480" y="682">syncPolicy:</text>
+<text class="sub" x="480" y="704">selfHeal, prune</text>
+<rect class="boundary" x="872" y="300" width="256" height="376" rx="14"/>
+<text class="tag" x="888" y="328">Namespace web</text>
+<rect class="svc" x="896" y="348" width="208" height="76" rx="12"/>
+<text class="name" x="912" y="380">web-config</text>
+<text class="sub" x="912" y="404">ConfigMap, GREETING</text>
+<rect class="svc" x="896" y="448" width="208" height="76" rx="12"/>
+<text class="name" x="912" y="480">Service web</text>
+<text class="sub" x="912" y="504">port 80 to http</text>
+<rect class="svc" x="896" y="556" width="208" height="92" rx="12"/>
+<text class="name" x="912" y="588">Deployment web</text>
+<text class="sub" x="912" y="612">2 replicas</text>
+<text class="sub" x="912" y="634">plainround/web</text>
+<path class="sync" d="M172 380V288"/>
+<text class="label t-accent" x="184" y="340">edit, commit, push</text>
+<path class="sync" d="M280 228H440"/>
+<text class="label t-accent" x="304" y="216">push :30418</text>
+<path class="sync" d="M556 378V274"/>
+<text class="label t-accent" x="568" y="312">git fetch every 20 s</text>
+<path class="sync" d="M612 486V454"/>
+<text class="label t-accent" x="624" y="476">render</text>
+<path class="async" d="M612 626V594"/>
+<text class="label t-accent" x="624" y="616">configures</text>
+<path class="sync" d="M760 500H828Q840 500 840 488V398Q840 386 852 386H896"/>
+<path class="sync" d="M760 566H896"/>
+<path class="read" d="M896 588H760"/>
+<path class="sync" d="M1000 524V556"/>
+<text class="label t-accent" x="1012" y="546">selects</text>
+<path class="fail" d="M172 452V788Q172 800 184 800H988Q1000 800 1000 788V648"/>
+<text class="label t-warn" x="200" y="788">kubectl scale, patch</text>
+<path class="sync" d="M48 836H112"/><text class="legend" x="124" y="841">sync call</text>
+<path class="async" d="M264 836H328"/><text class="legend" x="340" y="841">async message</text>
+<path class="read" d="M520 836H584"/><text class="legend" x="596" y="841">read</text>
+<path class="fail" d="M696 836H760"/><text class="legend" x="772" y="841">failure path</text>
+</svg>

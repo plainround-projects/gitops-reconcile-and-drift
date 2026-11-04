@@ -4,6 +4,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ## [Unreleased]
 
+### Added
+
+- Drawn architecture and flow figures in `docs/diagrams/`, light and dark, shown in the README.
+
 ### Fixed
 
 - Findings of the first live run: pushing a leftover working clone, keeping the hook's report out of the captured commit hash, reading managed fields, recognising a refused sync that is being retried, letting the caller's cluster name win over `.env`, and a Flux pruning comparison that waits for Flux to apply each commit.

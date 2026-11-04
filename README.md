@@ -9,6 +9,24 @@ A local Kubernetes cluster (k3d by default, kind optional) managed by Argo CD fr
 | **Level** | Beginner |
 | **Architecture** | [ARCHITECTURE.md](ARCHITECTURE.md), decisions in [docs/adr](docs/adr) |
 
+## Architecture
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/architecture-dark.svg">
+  <img alt="You push from the working clone gitops-demo to the Git server in the k3d cluster. In the namespace argocd the repo-server fetches every 20 seconds and the application-controller compares and applies to the Deployment web and ConfigMap web-config in the namespace web, as the Application web sets. The amber path is you scaling and patching the Deployment by hand, the drift experiment." src="docs/diagrams/architecture.svg">
+</picture>
+
+Notice that the only way into the cluster is the push, so the one hand edit, drawn in amber, is the drift the controller has to notice.
+
+## How one run flows
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/flow-dark.svg">
+  <img alt="One run: a change goes through Git, a hand edit drifts and is put back, a deleted file is pruned, a bad image is rolled back. The amber rows show the hand edit and a bad manifest being refused." src="docs/diagrams/flow.svg">
+</picture>
+
+The run shows the controller applying, healing and pruning from Git; the amber rows are the drift you create and the manifest the cluster refuses.
+
 ## Prerequisites
 
 | Tool | Version | Used for |

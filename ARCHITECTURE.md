@@ -26,6 +26,8 @@ The runbook is the second pattern. Each step of the lesson is a script that does
 
 ## Data flow
 
+Drawn versions of this figure and of the walk-through: [the architecture](docs/diagrams/architecture.svg) and [one run](docs/diagrams/flow.svg).
+
 ```mermaid
 flowchart LR
     you["You<br/>scripts/runbook"]

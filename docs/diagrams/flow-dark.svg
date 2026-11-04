@@ -1,0 +1,132 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="t d">
+<title id="t">One run: change, drift, prune, rollback</title>
+<desc id="d">A numbered run across four lanes: You, Git server, Argo CD and Namespace web. Argo CD deploys the app from Git (1). A change goes through Git and Argo CD applies it (2). Amber: you scale and patch by hand, and with self-heal off it stays changed (3); with self-heal on Argo CD puts it back (3a). A file deleted in Git is pruned from the namespace (4), and a bad image is rolled back with a git revert (5). Amber: a bad manifest is refused by the pre-push hook, and by the API server with no-verify, so the live Deployment keeps its last good state (6).</desc>
+<style>
+:root{--paper:#0d1117;--ink:#f5f4f8;--mute:#9a96ab;--accent:#6ec8ff;--good:#7ce0a1;--warn:#ffd166}
+text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,'Liberation Mono',monospace;fill:var(--ink)}
+.title{font-family:Georgia,'Iowan Old Style','Times New Roman',serif;font-size:36px}
+.caption{font-size:16px;fill:var(--mute)}
+.name{font-size:20px;font-weight:600}
+.lane{font-size:17px;font-weight:600}
+.sub{font-size:15px;fill:var(--mute)}
+.label{font-size:15px}
+.tag{font-size:15px;fill:var(--mute)}
+.num{font-size:15px;font-weight:700;fill:var(--paper)}
+.legend{font-size:14px;fill:var(--mute)}
+.t-accent{fill:var(--accent)}
+.t-good{fill:var(--good)}
+.t-warn{fill:var(--warn)}
+.t-ink{fill:var(--ink)}
+.b{font-weight:600}
+.paper{fill:var(--paper);stroke:var(--mute);stroke-opacity:.3}
+.grid{fill:url(#grid)}
+.boundary{fill:var(--mute);fill-opacity:.035;stroke:var(--mute);stroke-opacity:.7;stroke-dasharray:6 5}
+.svc{fill:var(--accent);fill-opacity:.08;stroke:var(--accent);stroke-width:1.25}
+.store{fill:var(--mute);fill-opacity:.1;stroke:var(--mute);stroke-width:1.25}
+.rim{fill:none;stroke:var(--mute);stroke-width:1.25}
+.actor{fill:none;stroke:var(--mute);stroke-width:1.25}
+.slot{fill:var(--accent);fill-opacity:.14;stroke:var(--accent);stroke-width:1}
+.note{fill:var(--warn);fill-opacity:.09;stroke:var(--warn);stroke-width:1}
+.win{fill:var(--good);fill-opacity:.09;stroke:var(--good);stroke-width:1}
+.hair{fill:none;stroke:var(--mute);stroke-opacity:.4;stroke-width:1}
+.zone{fill:var(--accent);fill-opacity:.045;stroke:var(--accent);stroke-width:1.25;stroke-dasharray:6 5}
+.stop{fill:none;stroke:var(--warn);stroke-width:4;stroke-linecap:round}
+.mask{fill:var(--paper)}
+.sync,.async,.read,.fail,.ok{fill:none}
+.sync{stroke:var(--accent);stroke-width:1.75;marker-end:url(#a-sync)}
+.async{stroke:var(--accent);stroke-width:1.75;stroke-dasharray:8 6;marker-end:url(#a-async)}
+.read{stroke:var(--mute);stroke-width:1.75;stroke-linecap:round;stroke-dasharray:1 6;marker-end:url(#a-read)}
+.fail{stroke:var(--warn);stroke-width:2;marker-end:url(#a-fail)}
+.ok{stroke:var(--good);stroke-width:1.75;marker-end:url(#a-ok)}
+.dot{fill:var(--accent)}
+.dot-w{fill:var(--warn)}
+.dot-g{fill:var(--good)}
+.head-sync,.head-async{stroke:var(--accent)}
+.head-sync{fill:var(--accent)}
+.head-async,.head-read{fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.head-read{stroke:var(--mute)}
+.head-fail{fill:var(--warn)}
+.head-ok{fill:var(--good)}
+.gridline{fill:none;stroke:var(--mute);stroke-opacity:.09}
+</style>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="gridline" d="M40 0H0V40"/></pattern>
+<marker id="a-sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-sync" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-async" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-async" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-read" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-read" d="M1 1L9 5L1 9"/></marker>
+<marker id="a-fail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-fail" d="M0 0L10 5L0 10z"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="head-ok" d="M0 0L10 5L0 10z"/></marker>
+</defs>
+<rect class="paper" x="0.5" y="0.5" width="1199" height="719" rx="16"/>
+<rect class="grid" x="1" y="1" width="1198" height="718" rx="16"/>
+<text class="title" x="48" y="68">One run: change, drift, prune, rollback</text>
+<text class="caption" x="48" y="100">One run of the lesson. Amber: a hand edit that drifts, and a bad manifest that is refused.</text>
+<rect class="actor" x="385" y="128" width="150" height="48" rx="24"/>
+<text class="lane" x="460" y="158" text-anchor="middle">You</text>
+<rect class="svc" x="550" y="128" width="120" height="48" rx="10"/>
+<text class="lane" x="610" y="148" text-anchor="middle">Git</text>
+<text class="lane" x="610" y="168" text-anchor="middle">server</text>
+<rect class="svc" x="710" y="128" width="120" height="48" rx="10"/>
+<text class="lane" x="770" y="158" text-anchor="middle">Argo CD</text>
+<rect class="svc" x="870" y="128" width="120" height="48" rx="10"/>
+<text class="lane" x="930" y="148" text-anchor="middle">Namespace</text>
+<text class="lane" x="930" y="168" text-anchor="middle">web</text>
+<path class="hair" d="M460 176V552M610 176V552M770 176V616M930 176V616"/>
+<path class="hair" d="M66 216V600"/>
+<circle class="dot" cx="66" cy="216" r="15"/>
+<text class="num" x="66" y="221" text-anchor="middle">1</text>
+<text class="label b t-ink" x="96" y="212">Argo CD deploys the app</text>
+<text class="sub" x="96" y="232">reset.sh seeds Git, no apply</text>
+<path class="sync" d="M770 216H930"/>
+<text class="label t-accent" x="786" y="206">apply</text>
+<circle class="dot" cx="66" cy="280" r="15"/>
+<text class="num" x="66" y="285" text-anchor="middle">2</text>
+<text class="label b t-ink" x="96" y="276">A change goes through Git</text>
+<text class="sub" x="96" y="296">3 replicas; push, then fetch</text>
+<path class="sync" d="M460 280H610"/>
+<text class="label t-accent" x="476" y="270">push</text>
+<path class="sync" d="M770 280H930"/>
+<text class="label t-accent" x="786" y="270">apply</text>
+<circle class="dot-w" cx="66" cy="344" r="15"/>
+<text class="num" x="66" y="349" text-anchor="middle">3</text>
+<text class="label b t-warn" x="96" y="340">Drift: scale and patch</text>
+<text class="sub" x="96" y="360">self-heal off: stays changed</text>
+<path class="fail" d="M460 344H930"/>
+<text class="label t-warn" x="786" y="334">scale, patch</text>
+<circle class="dot" cx="66" cy="408" r="15"/>
+<text class="num" x="66" y="413" text-anchor="middle">3a</text>
+<text class="label b t-ink" x="96" y="404">Self-heal puts it back</text>
+<text class="sub" x="96" y="424">selfHeal: true, watch sees diff</text>
+<path class="sync" d="M770 408H930"/>
+<text class="label t-accent" x="786" y="398">revert</text>
+<circle class="dot" cx="66" cy="472" r="15"/>
+<text class="num" x="66" y="477" text-anchor="middle">4</text>
+<text class="label b t-ink" x="96" y="468">Prune removes the ConfigMap</text>
+<text class="sub" x="96" y="488">deleted in Git, prune: true</text>
+<path class="sync" d="M460 472H610"/>
+<text class="label t-accent" x="476" y="462">delete file</text>
+<path class="sync" d="M770 472H930"/>
+<text class="label t-accent" x="786" y="462">prune</text>
+<circle class="dot" cx="66" cy="536" r="15"/>
+<text class="num" x="66" y="541" text-anchor="middle">5</text>
+<text class="label b t-ink" x="96" y="532">A bad image is rolled back</text>
+<text class="sub" x="96" y="552">Degraded; git revert, no kubectl</text>
+<path class="sync" d="M460 536H610"/>
+<text class="label t-accent" x="476" y="526">git revert</text>
+<path class="sync" d="M770 536H930"/>
+<text class="label t-accent" x="786" y="526">apply</text>
+<circle class="dot-w" cx="66" cy="600" r="15"/>
+<text class="num" x="66" y="605" text-anchor="middle">6</text>
+<text class="label b t-warn" x="96" y="596">A bad manifest is refused</text>
+<text class="sub" x="96" y="616">pre-push hook, then the API</text>
+<path class="fail" d="M776 600H930"/>
+<path class="stop" d="M906 588V612"/>
+<text class="label t-warn" x="786" y="590">refused</text>
+<rect class="slot" x="764" y="582" width="12" height="36" rx="4"/>
+<path class="ok" d="M764 600H710"/>
+<rect class="win" x="440" y="580" width="270" height="40" rx="10"/>
+<text class="label b t-good" x="456" y="605">keeps its last good state</text>
+<path class="sync" d="M48 676H112"/><text class="legend" x="124" y="681">sync call</text>
+<path class="fail" d="M696 676H760"/><text class="legend" x="772" y="681">failure path</text>
+<path class="ok" d="M928 676H992"/><text class="legend" x="1004" y="681">result</text>
+</svg>
